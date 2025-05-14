@@ -405,6 +405,10 @@ dberr_t CatalogManager::LoadIndex(const index_id_t index_id, const page_id_t pag
  * TODO: Student Implement
  */
 dberr_t CatalogManager::GetTable(const table_id_t table_id, TableInfo *&table_info) {
-  // ASSERT(false, "Not Implemented yet");
-  return DB_FAILED;
+    auto iter = tables_.find(table_id);
+    if (iter == tables_.end()) {
+        return DB_TABLE_NOT_EXIST;
+    }
+    table_info = iter->second;
+    return DB_SUCCESS;
 }
