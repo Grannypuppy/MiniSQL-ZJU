@@ -187,6 +187,7 @@ dberr_t CatalogManager::GetTable(const string &table_name, TableInfo *&table_inf
  * TODO: Student Implement
  */
 dberr_t CatalogManager::GetTables(vector<TableInfo *> &tables) const {
+  tables.clear();
   tables.reserve(tables_.size());
   for (const auto iter : tables_) {
     tables.push_back(iter.second);
@@ -260,18 +261,36 @@ dberr_t CatalogManager::CreateIndex(const string &table_name, const string &inde
 /**
  * TODO: Student Implement
  */
-dberr_t CatalogManager::GetIndex(const std::string &table_name, const std::string &index_name,
-                                 IndexInfo *&index_info) const {
-  // ASSERT(false, "Not Implemented yet");
-  return DB_FAILED;
+dberr_t CatalogManager::GetIndex(const string &table_name, const string &index_name, IndexInfo *&index_info) const {
+  auto table_iter = index_names_.find(table_name);
+  if (table_iter == index_names_.end()) {
+    return DB_TABLE_NOT_EXIST;
+  }
+
+  auto index_iter = table_iter->second.find(index_name);
+  if (index_iter == table_iter->second.end()) {
+    return DB_INDEX_NOT_FOUND;
+  }
+
+  auto index_id = index_iter->second;
+  index_info = indexes_.at(index_id);
+  return DB_SUCCESS;
 }
 
 /**
  * TODO: Student Implement
  */
-dberr_t CatalogManager::GetTableIndexes(const std::string &table_name, std::vector<IndexInfo *> &indexes) const {
-  // ASSERT(false, "Not Implemented yet");
-  return DB_FAILED;
+dberr_t CatalogManager::GetTableIndexes(const string &table_name, vector<IndexInfo *> &indexes) const {
+  auto table_iter = index_names_.find(table_name);
+  if (table_iter == index_names_.end()) {
+    return DB_TABLE_NOT_EXIST;
+  }
+
+  indexes.clear();
+  for (const auto &pair : table_iter->second) {
+    indexes.push_back(indexes_.at(pair.second));
+  }
+  return DB_SUCCESS;
 }
 
 /**
