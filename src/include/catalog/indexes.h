@@ -60,14 +60,25 @@ class IndexInfo {
     delete key_schema_;
   }
 
-/**
- * TODO: Student Implement
- */
   void Init(IndexMetadata *meta_data, TableInfo *table_info, BufferPoolManager *buffer_pool_manager) {
     // Step1: init index metadata and table info
+    meta_data_ = meta_data;  // 保存索引的元数据引用
+    
     // Step2: mapping index key to key schema
+    // 获取表的模式
+    auto schema = table_info->GetSchema();
+    // 获取要建立索引的列映射
+    auto key_map = meta_data_->GetKeyMapping();
+    
+    // 创建索引键模式 - 从表模式中选择特定的列作为索引键
+    key_schema_ = Schema::ShallowCopySchema(schema, key_map);
+    
     // Step3: call CreateIndex to create the index
-    ASSERT(false, "Not Implemented yet.");
+    // 根据索引类型创建实际的索引对象 (默认使用B+树索引)
+    index_ = CreateIndex(buffer_pool_manager, "bptree");
+    
+    // 确保索引创建成功
+    ASSERT(index_ != nullptr, "Failed to create index.");
   }
 
   inline Index *GetIndex() { return index_; }

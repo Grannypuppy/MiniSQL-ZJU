@@ -43,7 +43,12 @@ uint32_t IndexMetadata::SerializeTo(char *buf) const {
  * TODO: Student Implement
  */
 uint32_t IndexMetadata::GetSerializedSize() const {
-  return 0;
+  return  4 +    // MAGIC_NUM (INDEX_METADATA_MAGIC_NUM) 的大小
+          4 +    // index_id_ 的大小
+          MACH_STR_SERIALIZED_SIZE(index_name_) +    // index_name_ 的大小 
+          4 +    // table_id_ 的大小
+          4 +    // key count : key_map_ 数组大小字段的大小
+          4 * key_map_.size();    // key_map_ 数组内容的大小 (每个uint32_t占4字节)
 }
 
 uint32_t IndexMetadata::DeserializeFrom(char *buf, IndexMetadata *&index_meta) {

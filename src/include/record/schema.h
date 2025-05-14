@@ -47,11 +47,11 @@ class Schema {
    */
   static Schema *ShallowCopySchema(const Schema *table_schema, const std::vector<uint32_t> &attrs) {
     std::vector<Column *> cols;
-    cols.reserve(attrs.size());
+    cols.reserve(attrs.size());  // 预先分配内存空间，避免多次重新分配
     for (const auto i : attrs) {
-      cols.emplace_back(table_schema->columns_[i]);
+      cols.emplace_back(table_schema->columns_[i]);  // 从表模式中复制指定索引的列指针
     }
-    return new Schema(cols, false);
+    return new Schema(cols, false);  // 创建新的模式对象，不负责管理列指针的生命周期（浅拷贝）
   }
 
   /**
