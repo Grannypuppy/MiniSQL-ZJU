@@ -73,7 +73,8 @@ CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager, LockManag
       if (init) {
         // 新建数据库
         catalog_meta_ = CatalogMeta::NewInstance();
-
+        next_table_id_ = 0;
+        next_index_id_ = 0;
         // 将新的catalog_meta_写入磁盘
         FlushCatalogMetaPage();
       }
@@ -119,7 +120,7 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
     
     // 分配新的表ID，原子操作确保线程安全
     table_id_t table_id = next_table_id_.fetch_add(1);
-
+    
     // 创建一个新页用于存储表的元数据
     page_id_t meta_page_id;  // 表元数据页的页面ID
     Page *meta_page = buffer_pool_manager_->NewPage(&meta_page_id);  // 创建新页面存储表元数据：NewPage会赋值一个NewPage给meta_page_id，并返回一个指向新页面的指针
@@ -202,29 +203,29 @@ dberr_t CatalogManager::GetTables(vector<TableInfo *> &tables) const {
  */
 dberr_t CatalogManager::CreateIndex(const string &table_name, const string &index_name, const vector<string> &index_keys, Txn *txn, IndexInfo *&index_info, const string &index_type) {
     // 检查表是否存在
-    TableInfo *table_info = nullptr;
-    if (GetTable(table_name, table_info) != DB_SUCCESS) {
+  TableInfo *table_info = nullptr;
+  if (GetTable(table_name, table_info) != DB_SUCCESS) {
         return DB_TABLE_NOT_EXIST;
-    }
-    
+  }
+
     // 检查索引名是否已存在
     if (index_names_[table_name].find(index_name) != index_names_[table_name].end()) {
         return DB_INDEX_ALREADY_EXIST;
     }
-    
+
     // 检查索引键是否有效，并生成 key_map_
     vector<uint32_t> key_map;
     auto schema = table_info->GetSchema();
     for (const auto &key : index_keys) {
         uint32_t col_index;
-        if (!schema->GetColumnIndex(key, col_index)) {
-            return DB_COLUMN_NOT_EXIST;
+    if (schema->GetColumnIndex(key, col_index) != DB_SUCCESS) {
+      return DB_COLUMN_NAME_NOT_EXIST;  // 列名不存在，返回错误
         }
         key_map.push_back(col_index);
     }
     
-    // 分配新的索引ID
-    index_id_t index_id = next_index_id_.fetch_add(1);
+  // 步骤5: 分配新的索引ID
+  index_id_t index_id = next_index_id_.fetch_add(1);  // 原子操作，获取唯一索引ID
     
     // 创建索引的元数据页
     page_id_t meta_page_id;
@@ -240,23 +241,23 @@ dberr_t CatalogManager::CreateIndex(const string &table_name, const string &inde
         delete index_meta;
         buffer_pool_manager_->DeletePage(meta_page_id);
         return DB_FAILED;
-    }
-    
+  }
+  
     // 序列化索引的元数据到页面
-    index_meta->SerializeTo(meta_page->GetData());
-    buffer_pool_manager_->UnpinPage(meta_page_id, true);
-    
+  index_meta->SerializeTo(meta_page->GetData());
+  buffer_pool_manager_->UnpinPage(meta_page_id, true);
+  
     // 创建索引信息对象
     index_info = IndexInfo::Create();
     index_info->Init(index_meta, table_info, buffer_pool_manager_);
-    indexes_[index_id] = index_info;
-    index_names_[table_name][index_name] = index_id;
-    
+  indexes_[index_id] = index_info;
+  index_names_[table_name][index_name] = index_id;
+  
     // 更新catalog元数据
-    catalog_meta_->index_meta_pages_[index_id] = meta_page_id;
+  catalog_meta_->index_meta_pages_[index_id] = meta_page_id;
     FlushCatalogMetaPage();
     
-    return DB_SUCCESS;
+  return DB_SUCCESS;
 }
 
 /**
