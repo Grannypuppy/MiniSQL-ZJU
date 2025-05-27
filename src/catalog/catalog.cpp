@@ -297,16 +297,80 @@ dberr_t CatalogManager::GetTableIndexes(const string &table_name, vector<IndexIn
  * TODO: Student Implement
  */
 dberr_t CatalogManager::DropTable(const string &table_name) {
-  // ASSERT(false, "Not Implemented yet");
-  return DB_FAILED;
+    // 检查表是否存在
+    auto table_iter = table_names_.find(table_name);
+    if (table_iter == table_names_.end()) {
+        return DB_TABLE_NOT_EXIST;
+    }
+    
+    table_id_t table_id = table_iter->second;
+    TableInfo *table_info = tables_[table_id];
+    
+    // 1.删除相关的所有索引
+    auto index_iter = index_names_.find(table_name);
+    if (index_iter != index_names_.end()) {
+        for (const auto &pair : index_iter->second) {
+            index_id_t index_id = pair.second;
+            // 删除索引元数据页
+            buffer_pool_manager_->DeletePage(catalog_meta_->index_meta_pages_[index_id]);
+            catalog_meta_->index_meta_pages_.erase(index_id);
+            // 删除索引对象
+            delete indexes_[index_id];
+            indexes_.erase(index_id);
+        }
+        index_names_.erase(index_iter);
+    }
+    
+    // 删除表的元数据页
+    buffer_pool_manager_->DeletePage(catalog_meta_->table_meta_pages_[table_id]);
+    catalog_meta_->table_meta_pages_.erase(table_id);
+    
+    // 删除表对象
+    delete table_info;
+    tables_.erase(table_id);
+    table_names_.erase(table_name);
+    
+    // 更新catalog元数据
+    FlushCatalogMetaPage();
+    
+    return DB_SUCCESS;
 }
 
 /**
  * TODO: Student Implement
  */
 dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_name) {
-  // ASSERT(false, "Not Implemented yet");
-  return DB_FAILED;
+    // 检查表和索引是否存在
+    auto table_iter = index_names_.find(table_name);
+    if (table_iter == index_names_.end()) {
+        return DB_TABLE_NOT_EXIST;
+    }
+    
+    auto index_iter = table_iter->second.find(index_name);
+    if (index_iter == table_iter->second.end()) {
+        return DB_INDEX_NOT_FOUND;
+    }
+    
+    index_id_t index_id = index_iter->second;
+    
+    // 删除索引元数据页
+    buffer_pool_manager_->DeletePage(catalog_meta_->index_meta_pages_[index_id]);
+    catalog_meta_->index_meta_pages_.erase(index_id);
+    
+    // 删除索引对象
+    delete indexes_[index_id];
+    indexes_.erase(index_id);
+    table_iter->second.erase(index_name);
+    
+    // 如果表没有其他索引了，删除表的索引映射
+    if (table_iter->second.empty()) {
+        index_names_.erase(table_name);
+    }
+    
+    // 更新catalog元数据
+    FlushCatalogMetaPage();
+    
+    return DB_SUCCESS;
 }
 
 /**
