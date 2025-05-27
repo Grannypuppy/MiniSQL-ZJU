@@ -118,8 +118,7 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
 
   // 创建一个新页用于存储表的元数据
   page_id_t meta_page_id;  // 表元数据页的页面ID
-  Page *meta_page = buffer_pool_manager_->NewPage(
-      &meta_page_id);  // 创建新页面存储表元数据：NewPage会赋值一个NewPage给meta_page_id，并返回一个指向新页面的指针
+  Page *meta_page = buffer_pool_manager_->NewPage(meta_page_id);  // 创建新页面存储表元数据：NewPage会赋值一个NewPage给meta_page_id，并返回一个指向新页面的指针
   if (meta_page == nullptr) {
     return DB_FAILED;  // 如果无法创建新页面，返回失败
   }
@@ -136,8 +135,9 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
   // 获取表堆的根页ID
   page_id_t root_page_id = table_heap->GetFirstPageId();
 
+  TableSchema *copied_schema = Schema::DeepCopySchema(schema);
   // 创建表的元数据，包括表ID、表名、根页ID和表结构
-  TableMetadata *table_meta = TableMetadata::Create(table_id, table_name, root_page_id, schema);
+  TableMetadata *table_meta = TableMetadata::Create(table_id, table_name, root_page_id, copied_schema);
   if (table_meta == nullptr) {
     // 如果表元数据创建失败，释放之前分配的表堆和元数据页
     table_heap->DeleteTable();
@@ -227,20 +227,11 @@ dberr_t CatalogManager::CreateIndex(const string &table_name, const string &inde
 
   // 创建索引的元数据页
   page_id_t meta_page_id;
-  Page *meta_page = buffer_pool_manager_->NewPage(&meta_page_id);
+  Page *meta_page = buffer_pool_manager_->NewPage(meta_page_id);
   if (meta_page == nullptr) return DB_FAILED;
 
   // 创建索引的元数据
   IndexMetadata *index_meta = IndexMetadata::Create(index_id, index_name, table_info->GetTableId(), key_map);
-
-  // 创建索引
-  Index *index = Index::Create(index_type, index_meta, schema);
-  if (index == nullptr) {
-    delete index_meta;
-    buffer_pool_manager_->DeletePage(meta_page_id);
-    return DB_FAILED;
-  }
-
   // 序列化索引的元数据到页面
   index_meta->SerializeTo(meta_page->GetData());
   buffer_pool_manager_->UnpinPage(meta_page_id, true);
@@ -310,17 +301,11 @@ dberr_t CatalogManager::DropTable(const string &table_name) {
     auto index_iter = index_names_.find(table_name);
     if (index_iter != index_names_.end()) {
         for (const auto &pair : index_iter->second) {
-            index_id_t index_id = pair.second;
-            // 删除索引元数据页
-            buffer_pool_manager_->DeletePage(catalog_meta_->index_meta_pages_[index_id]);
-            catalog_meta_->index_meta_pages_.erase(index_id);
-            // 删除索引对象
-            delete indexes_[index_id];
-            indexes_.erase(index_id);
+            DropIndex(table_name, pair.first);  // 删除每个索引
         }
-        index_names_.erase(index_iter);
+        //index_names_.erase(index_iter);
     }
-    
+
     // 删除表的元数据页
     buffer_pool_manager_->DeletePage(catalog_meta_->table_meta_pages_[table_id]);
     catalog_meta_->table_meta_pages_.erase(table_id);
@@ -352,14 +337,16 @@ dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_
     }
     
     index_id_t index_id = index_iter->second;
-    
+
+    IndexInfo *index_info = indexes_.find(index_id)->second;
+    if(index_info->GetIndex()->Destroy() == DB_FAILED) return DB_FAILED;
+    indexes_.erase(index_id);
+
     // 删除索引元数据页
     buffer_pool_manager_->DeletePage(catalog_meta_->index_meta_pages_[index_id]);
     catalog_meta_->index_meta_pages_.erase(index_id);
     
-    // 删除索引对象
-    delete indexes_[index_id];
-    indexes_.erase(index_id);
+
     table_iter->second.erase(index_name);
     
     // 如果表没有其他索引了，删除表的索引映射
@@ -377,8 +364,13 @@ dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_
  * TODO: Student Implement
  */
 dberr_t CatalogManager::FlushCatalogMetaPage() const {
-  // ASSERT(false, "Not Implemented yet");
-  return DB_FAILED;
+  Page* meta_page=buffer_pool_manager_->FetchPage(CATALOG_META_PAGE_ID);
+  if(meta_page==nullptr)return DB_FAILED;
+  char *buf=meta_page->GetData();
+  catalog_meta_->SerializeTo(buf);
+  buffer_pool_manager_->FlushPage(CATALOG_META_PAGE_ID);
+  buffer_pool_manager_->UnpinPage(CATALOG_META_PAGE_ID,false);
+  return DB_SUCCESS;
 }
 
 /**
@@ -402,7 +394,11 @@ dberr_t CatalogManager::LoadTable(const table_id_t table_id, const page_id_t pag
                                             log_manager_, lock_manager_);
 
   // 创建表信息对象
-  TableInfo *table_info = new TableInfo(table_meta, table_heap);
+  TableInfo *table_info = TableInfo::Create();
+  // 初始化表信息，关联元数据和表堆
+  table_info->Init(table_meta, table_heap);
+
+
   tables_[table_id] = table_info;
   table_names_[table_meta->GetTableName()] = table_id;
 
