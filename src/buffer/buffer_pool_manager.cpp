@@ -32,6 +32,7 @@ Page *BufferPoolManager::FetchPage(page_id_t page_id) {
     }
 
     if (page_table_.count(page_id) != 0) {
+        // If the page is already in the buffer pool, pin it and return
         frame_id_t frame_id = page_table_[page_id];
         Page &page = pages_[frame_id];
         page.pin_count_++;
@@ -120,8 +121,8 @@ bool BufferPoolManager::UnpinPage(page_id_t page_id, bool is_dirty) {
     Page &page =pages_[frame_id];
 
     if (page.pin_count_ == 0) {
-        LOG(WARNING) << "PAGE ALREADY BE UNPINNED" << page_id;
-        return false;
+        LOG(WARNING) << "Page " << page_id << " is already unpinned";
+        return false; // NOTE: false or true?
     }
 
     if (is_dirty) page.is_dirty_ = true;
