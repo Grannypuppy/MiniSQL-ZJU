@@ -142,8 +142,6 @@ void InternalPage::MoveHalfTo(InternalPage *recipient, BufferPoolManager *buffer
   int half_size = (size + 1) / 2;  // Calculate the half size, rounding up
   recipient->CopyNFrom(PairPtrAt(half_size), GetSize() - half_size, buffer_pool_manager);
   SetSize(half_size);  // Update the size of the current page
-  LOG(INFO) << "Internal page " << GetPageId() << " split, new size: " << GetSize()
-            << ", recipient page size: " << recipient->GetSize();
 }
 
 /* Copy entries into me, starting from {src} and copy {size} entries.

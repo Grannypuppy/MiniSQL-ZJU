@@ -90,8 +90,6 @@ void DiskManager::DeAllocatePage(page_id_t logical_page_id) {
   DiskFileMetaPage *meta_page = reinterpret_cast<DiskFileMetaPage *>(meta_data_);
   page_id_t page_offset = logical_page_id % BITMAP_SIZE;
   page_id_t bitmap_physical_id = 1 + logical_page_id / BITMAP_SIZE * (BITMAP_SIZE + 1);
-  LOG(INFO) << "Deallocating page: " << logical_page_id << ", bitmap physical id: " << bitmap_physical_id
-            << ", page offset: " << page_offset;
   // Read the bitmap page
   char buf[PAGE_SIZE];
   ReadPhysicalPage(bitmap_physical_id, buf);

@@ -410,7 +410,6 @@ void BPlusTree::Redistribute(InternalPage *neighbor_node, InternalPage *node, in
     neighbor_node->MoveFirstToEndOf(node, parent->KeyAt(index), buffer_pool_manager_);
     // NOTE: After executing MoveFirstToEndOf, the first key of neighbor_node is now at index 0
     parent->SetKeyAt(index, neighbor_node->KeyAt(0));  // Update the parent key
-    ToString(parent, buffer_pool_manager_);
   } else {
     int index = parent->ValueIndex(node->GetPageId());
     GenericKey *key = neighbor_node->KeyAt(neighbor_node->GetSize() - 1);
