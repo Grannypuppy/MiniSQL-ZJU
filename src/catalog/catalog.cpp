@@ -72,6 +72,13 @@ CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager, LockManag
     next_table_id_ = 0;
     next_index_id_ = 0;
     // 将新的catalog_meta_写入磁盘
+    page_id_t catalog_page_id = CATALOG_META_PAGE_ID;
+    Page *catalog_page = buffer_pool_manager_->NewPage(catalog_page_id);
+    if (catalog_page != nullptr) {
+        catalog_meta_->SerializeTo(catalog_page->GetData());
+        buffer_pool_manager_->UnpinPage(CATALOG_META_PAGE_ID, true);
+    }
+    
     FlushCatalogMetaPage();
   } else {
     // 从磁盘加载已有数据库
