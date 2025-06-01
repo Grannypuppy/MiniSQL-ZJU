@@ -130,8 +130,10 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
     return DB_FAILED;  // 如果无法创建新页面，返回失败
   }
 
+  TableSchema *copied_schema = Schema::DeepCopySchema(schema);
+
   // 创建表堆，用于实际存储表的数据
-  TableHeap *table_heap = TableHeap::Create(buffer_pool_manager_, schema, txn, log_manager_,
+  TableHeap *table_heap = TableHeap::Create(buffer_pool_manager_, copied_schema, txn, log_manager_,
                                             lock_manager_);  // 这个Create函数会自动分配有一个root_page_id
   if (table_heap == nullptr) {
     // 如果表堆创建失败，释放之前分配的元数据页
@@ -142,7 +144,7 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
   // 获取表堆的根页ID
   page_id_t root_page_id = table_heap->GetFirstPageId();
 
-  TableSchema *copied_schema = Schema::DeepCopySchema(schema);
+  
   // 创建表的元数据，包括表ID、表名、根页ID和表结构
   TableMetadata *table_meta = TableMetadata::Create(table_id, table_name, root_page_id, copied_schema);
   if (table_meta == nullptr) {
