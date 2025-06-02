@@ -84,6 +84,8 @@ Page *BufferPoolManager::NewPage(page_id_t &page_id) {
     page.pin_count_ = 1;
     page.is_dirty_ = false;
 
+    memset(page.data_, 0, PAGE_SIZE);
+    
     return &page;
 }
 
@@ -107,7 +109,7 @@ bool BufferPoolManager::DeletePage(page_id_t page_id) {
     page.is_dirty_ = false;
     free_list_.emplace_back(frame_id);
 
-    return false;
+    return true;
 }
 
 /**
