@@ -243,7 +243,7 @@ dberr_t CatalogManager::CreateIndex(const string &table_name, const string &inde
   IndexMetadata *index_meta = IndexMetadata::Create(index_id, index_name, table_info->GetTableId(), key_map);
   // 序列化索引的元数据到页面
   index_meta->SerializeTo(meta_page->GetData());
-  buffer_pool_manager_->UnpinPage(meta_page_id, true);
+  
 
   // 创建索引信息对象
   index_info = IndexInfo::Create();
@@ -253,6 +253,8 @@ dberr_t CatalogManager::CreateIndex(const string &table_name, const string &inde
 
   // 更新catalog元数据
   catalog_meta_->index_meta_pages_[index_id] = meta_page_id;
+
+  buffer_pool_manager_->UnpinPage(meta_page_id, true);
   FlushCatalogMetaPage();
 
   return DB_SUCCESS;
