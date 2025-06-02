@@ -28,8 +28,8 @@ BPlusTree::BPlusTree(index_id_t index_id, BufferPoolManager *buffer_pool_manager
   if(!page->GetRootId(index_id_, &root_page_id_)) {
     root_page_id_ = INVALID_PAGE_ID;// If the index does not exist, initialize it
   }
-  buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID, false);  // Unpin the index roots page without dirty flag
-  buffer_pool_manager_->UnpinPage(root_page_id_, false);  // Unpin the root page if it exists
+  buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID, true);  // Unpin the index roots page without dirty flag
+  buffer_pool_manager_->UnpinPage(root_page_id_, true);  // Unpin the root page if it exists
 }
 
 void BPlusTree::Destroy(page_id_t current_page_id) {}
