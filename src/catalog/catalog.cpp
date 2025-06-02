@@ -69,16 +69,15 @@ CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager, LockManag
   if (init) {
     // 新建数据库
     catalog_meta_ = CatalogMeta::NewInstance();
-    next_table_id_ = 0;
-    next_index_id_ = 0;
     // 将新的catalog_meta_写入磁盘
     page_id_t catalog_page_id = CATALOG_META_PAGE_ID;
-    Page *catalog_page = buffer_pool_manager_->NewPage(catalog_page_id);
+    Page *catalog_page = buffer_pool_manager_->FetchPage(catalog_page_id);
     if (catalog_page != nullptr) {
         catalog_meta_->SerializeTo(catalog_page->GetData());
         buffer_pool_manager_->UnpinPage(CATALOG_META_PAGE_ID, true);
     }
-    
+    next_table_id_.store(catalog_meta_->GetNextTableId());
+        next_index_id_.store(catalog_meta_->GetNextIndexId());
     FlushCatalogMetaPage();
   } else {
     // 从磁盘加载已有数据库
@@ -86,6 +85,10 @@ CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager, LockManag
     catalog_meta_ = CatalogMeta::DeserializeFrom(catalog_page->GetData());
     buffer_pool_manager_->UnpinPage(CATALOG_META_PAGE_ID, false);
 
+    // 1) 恢复自增 ID
+        next_table_id_.store(catalog_meta_->GetNextTableId());
+        next_index_id_.store(catalog_meta_->GetNextIndexId());
+      
     // 加载所有表和索引
     for (auto &table_meta : catalog_meta_->table_meta_pages_) {
       LoadTable(table_meta.first, table_meta.second);
@@ -93,10 +96,6 @@ CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager, LockManag
     for (auto &index_meta : catalog_meta_->index_meta_pages_) {
       LoadIndex(index_meta.first, index_meta.second);
     }
-
-    // 设置下一个可用的ID
-    next_table_id_ = catalog_meta_->GetNextTableId();
-    next_index_id_ = catalog_meta_->GetNextIndexId();
   }
 }
 
@@ -317,15 +316,20 @@ dberr_t CatalogManager::DropTable(const string &table_name) {
         //index_names_.erase(index_iter);
     }
 
+    TableHeap *table_heap = table_info->GetTableHeap();
+    if (table_heap != nullptr) {
+        table_info->GetTableHeap()->DeleteTable(table_heap->GetFirstPageId());
+    }
+    
+    delete table_info;
+    tables_.erase(table_id);
+    table_names_.erase(table_name);
+
     // 删除表的元数据页
     buffer_pool_manager_->DeletePage(catalog_meta_->table_meta_pages_[table_id]);
     catalog_meta_->table_meta_pages_.erase(table_id);
     
     // 删除表对象
-    delete table_info;
-    tables_.erase(table_id);
-    table_names_.erase(table_name);
-    
     // 更新catalog元数据
     FlushCatalogMetaPage();
     
@@ -350,19 +354,14 @@ dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_
     index_id_t index_id = index_iter->second;
 
     IndexInfo *index_info = indexes_.find(index_id)->second;
-    if(index_info->GetIndex()->Destroy() == DB_FAILED) return DB_FAILED;
+
+    delete index_info;
     indexes_.erase(index_id);
+    table_iter->second.erase(index_name);
 
     // 删除索引元数据页
-    buffer_pool_manager_->DeletePage(catalog_meta_->index_meta_pages_[index_id]);
-    catalog_meta_->index_meta_pages_.erase(index_id);
-    
-
-    table_iter->second.erase(index_name);
-    
-    // 如果表没有其他索引了，删除表的索引映射
-    if (table_iter->second.empty()) {
-        index_names_.erase(table_name);
+    if (!catalog_meta_->DeleteIndexMetaPage(buffer_pool_manager_, index_id)){
+        return DB_FAILED;
     }
     
     // 更新catalog元数据
