@@ -69,15 +69,17 @@ bool TableHeap::MarkDelete(const RowId &rid, Txn *txn) {
  * TODO: Student Implement
  */
 bool TableHeap::UpdateTuple(Row &row, const RowId &rid, Txn *txn) {
+  
+  if (rid.GetPageId() == INVALID_PAGE_ID) {
+    LOG(WARNING) << "UpdateTuple called with invalid RowId.";
+    return false;
+  }
+  
   auto page = reinterpret_cast<TablePage *>(buffer_pool_manager_->FetchPage(rid.GetPageId()));
   if (page == nullptr) return false;
 
-  Row old_row_;
-  page->RLatch();
-  bool flag_get = page->GetTuple(&old_row_, schema_, txn, lock_manager_);
-  page->RUnlatch();
-  ASSERT(flag_get, "FAILED TO GET OLD ONE");
-
+  Row old_row_(rid);
+  
   page->WLatch();
   bool success = page->UpdateTuple(row, &old_row_, schema_, txn, lock_manager_, log_manager_);
   page->WUnlatch();

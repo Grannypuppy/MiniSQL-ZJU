@@ -7,9 +7,12 @@
  * TODO: Student Implement
  */
 TableIterator::TableIterator(TableHeap *table_heap, RowId rid, Txn *txn) : table_heap_(table_heap), current_rid_(rid), txn_(txn) {
-  if (rid == INVALID_ROWID) return;
-  bool ok = table_heap_->GetTuple(&current_row_, txn_);
-  ASSERT(ok, "Failed to fetch tuple at table iterator init");
+  if (current_rid_ == INVALID_ROWID || table_heap_ == nullptr) return;
+  current_row_ = Row(current_rid_);
+  if(!table_heap_->GetTuple(&current_row_, txn_)) 
+  {
+    current_rid_.Set(INVALID_PAGE_ID, 0);
+  }
 }
 
 TableIterator::TableIterator(const TableIterator &other) {
@@ -59,6 +62,7 @@ TableIterator &TableIterator::operator++() {
   if (page->GetNextTupleRid(current_rid_, &next_rid)) {
     bpm->UnpinPage(cur_page_id, false);
     current_rid_ = next_rid;
+    current_row_ = Row(current_rid_);
     bool ok = table_heap_->GetTuple(&current_row_, txn_);
     ASSERT(ok, "TableIterator::operator++: GetTuple failed");
     return *this;
@@ -68,17 +72,25 @@ TableIterator &TableIterator::operator++() {
   page_id_t next_page_id = page->GetNextPageId();
   bpm->UnpinPage(cur_page_id, false);
   while (next_page_id != INVALID_PAGE_ID) {
-    auto page2 = reinterpret_cast<TablePage *>(bpm->FetchPage(next_page_id));
-    if (page2->GetFirstTupleRid(&next_rid)) {
+    auto page_next = reinterpret_cast<TablePage *>(bpm->FetchPage(next_page_id));
+    if (page_next == nullptr) {
+      // 无法获取下一页，设为 End()
+      current_rid_.Set(INVALID_PAGE_ID, 0);
+      bpm->UnpinPage(next_page_id, false);
+      return *this;
+    }
+    // 尝试从新页面的开头获取第一个元组
+    if (page_next->GetFirstTupleRid(&next_rid)) {
       bpm->UnpinPage(next_page_id, false);
       current_rid_ = next_rid;
+      current_row_ = Row(current_rid_);
       bool ok = table_heap_->GetTuple(&current_row_, txn_);
       ASSERT(ok, "TableIterator::operator++: GetTuple failed on new page");
       return *this;
     }
-    page_id_t pid = page2->GetNextPageId();
     bpm->UnpinPage(next_page_id, false);
-    next_page_id = pid;
+    // 如果这个新页面也是空的，循环会继续，获取它的下一页 
+    next_page_id  = page_next->GetNextPageId();
   }
 
   // 没找到
