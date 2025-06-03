@@ -358,22 +358,22 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
   LOG(INFO) << "ExecuteCreateTable" << std::endl;
 #endif
 
-  // 检查是否有选中的数据库
-  if (context == nullptr || current_db_.empty()) {
-    std::cout << "No database selected for CREATE TABLE operation." << std::endl;
+  // 验证执行环境
+  if (context == nullptr || current_db_.empty())
+  {
+    LOG(ERROR) << "Execute context is null or no database selected.";
     return DB_FAILED;
   }
   CatalogManager *catalog_manager = context->GetCatalog();
-  if (catalog_manager == nullptr) {
-    LOG(ERROR) << "Critical error: CatalogManager is null in ExecuteContext for database " << current_db_;
+  if (catalog_manager == nullptr) 
     return DB_FAILED;
-  }
+  
   Txn *txn = context->GetTransaction();
 
   // 获取表名
   if (ast == nullptr || ast->type_ != kNodeCreateTable || ast->child_ == nullptr ||
       ast->child_->type_ != kNodeIdentifier || ast->child_->val_ == nullptr) {
-    LOG(ERROR) << "Syntax error: Invalid AST structure for CREATE TABLE statement (missing table name).";
+    LOG(ERROR) << "Syntax error: Invalid AST structure for CREATE TABLE statement.";
     return DB_FAILED;
   }
   std::string table_name(ast->child_->val_);
@@ -553,7 +553,6 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
     ExecuteInformation(result);
     return result;
   }
-  // ASSERT(created_table_info_ptr != nullptr, "CatalogManager::CreateTable succeeded but output TableInfo is null.");
 
   // 创建主键索引 (如果定义了主键)
   if (!pk_column_names_from_ast.empty()) {
@@ -586,9 +585,6 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
           }
       }
   }
-
-  // 输出成功信息并返回
-  std::cout << "Table [" << table_name << "] created successfully." << std::endl;
   return DB_SUCCESS;
 }
 
@@ -1044,7 +1040,7 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
     }
 
     if (ch == ';') {
-      // Trim(current_statement_buffer); // 移除首尾空白
+
       current_statement_buffer.erase(0, current_statement_buffer.find_first_not_of(" \t\n\r\f\v"));
       current_statement_buffer.erase(current_statement_buffer.find_last_not_of(" \t\n\r\f\v") + 1);
 
@@ -1053,8 +1049,6 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
         current_statement_buffer.clear();
         continue; // 跳过空语句
       }
-
-      //LOG(INFO) << "Parsing from file [" << file_name << "]: " << current_statement_buffer;
 
       MinisqlParserInit(); // 初始化解析器状态
 
