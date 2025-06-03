@@ -25,14 +25,37 @@ BPlusTree::BPlusTree(index_id_t index_id, BufferPoolManager *buffer_pool_manager
     internal_max_size_ = (PAGE_SIZE - INTERNAL_PAGE_HEADER_SIZE) / (KM.GetKeySize() + sizeof(page_id_t));
   }
   auto page = reinterpret_cast<IndexRootsPage *>(buffer_pool_manager_->FetchPage(INDEX_ROOTS_PAGE_ID)->GetData());
-  if(!page->GetRootId(index_id_, &root_page_id_)) {
-    root_page_id_ = INVALID_PAGE_ID;// If the index does not exist, initialize it
+  if (!page->GetRootId(index_id_, &root_page_id_)) {
+    root_page_id_ = INVALID_PAGE_ID;  // If the index does not exist, initialize it
   }
-  buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID, true);  // Unpin the index roots page without dirty flag
-  buffer_pool_manager_->UnpinPage(root_page_id_, true);  // Unpin the root page if it exists
+  buffer_pool_manager_->UnpinPage(INDEX_ROOTS_PAGE_ID, false);  // Unpin the index roots page without dirty flag
 }
 
-void BPlusTree::Destroy(page_id_t current_page_id) {}
+void BPlusTree::Destroy(page_id_t current_page_id) {
+  if (current_page_id == INVALID_PAGE_ID) {
+    current_page_id = root_page_id_;
+    auto *header_page = buffer_pool_manager_->FetchPage(INDEX_ROOTS_PAGE_ID);
+    auto *index_roots_page = reinterpret_cast<IndexRootsPage *>(header_page->GetData());
+    index_roots_page->Delete(index_id_);
+  }
+
+  Page *page = buffer_pool_manager_->FetchPage(current_page_id);
+  if (page == nullptr) {
+    LOG(ERROR) << "Page with ID " << current_page_id << " not found in buffer pool.";
+    return;  // Page not found
+  }
+
+  auto *node = reinterpret_cast<BPlusTreePage *>(page->GetData());
+  if (!node->IsLeafPage()) {
+    // If it's an internal page, we need to recursively destroy its children
+    auto *internal_page = reinterpret_cast<InternalPage *>(node);
+    for (int i = 0; i < internal_page->GetSize(); i++) {
+      Destroy(internal_page->ValueAt(i));
+    }
+  }
+  buffer_pool_manager_->UnpinPage(current_page_id, false);  // Unpin the page after destruction of children
+  buffer_pool_manager_->DeletePage(current_page_id);        // Delete the page from the buffer pool
+}
 
 /*
  * Helper function to decide whether current b+tree is empty
@@ -126,6 +149,7 @@ bool BPlusTree::InsertIntoLeaf(GenericKey *key, const RowId &value, Txn *transac
   // Check if the key already exists in the leaf page
   RowId tmp_value;
   if (leaf_page->Lookup(key, tmp_value, processor_)) {
+    LOG(ERROR) << "Key already exists in the leaf page: " << key;
     buffer_pool_manager_->UnpinPage(leaf_page->GetPageId(), false);  // Unpin the leaf page without dirty flag
     return false;                                                    // Key already exists, do not insert
   } else {
