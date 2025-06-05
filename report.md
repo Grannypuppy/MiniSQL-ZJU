@@ -195,6 +195,189 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
 }
 ```
 
+#### Bonus: Clock_Replacer
+
+**Clock Replacer**是Buffer Pool Manager中的一个重要组件，负责在缓冲池满时选择合适的页面进行替换。相比传统的LRU算法，Clock Replacer具有更高的性能和更低的实现复杂度。
+
+**Clock Replacer的算法设计**：
+
+**数据结构设计**：
+- `clock_list`：使用双向链表维护可被替换的页面队列，支持高效的头尾操作
+- `clock_status`：使用map存储每个页面的引用位状态（0表示未使用，1表示已使用）
+- `capacity`：记录替换器的最大容量
+
+**核心算法逻辑**：
+
+1. **Victim操作**：实现页面淘汰选择
+   ```cpp
+   // 遍历clock_list寻找可替换页面
+   // 如果页面引用位为0，直接替换
+   // 如果页面引用位为1，设置为0并重新排队
+   bool CLOCKReplacer::Victim(frame_id_t *frame_id) {
+    if (clock_list.empty()) {
+        return false;  // 没有可以被替换的页
+    }
+
+    while (!clock_list.empty()) {
+        frame_id_t current_frame = clock_list.front();
+        clock_list.pop_front();
+
+        // 如果当前页是未被pin的页
+        if (clock_status[current_frame] == 0) {
+            *frame_id = current_frame;
+            clock_status.erase(current_frame);
+            return true;  // 找到一个可以被替换的页
+        } else {
+            // 将当前页的状态设置为未使用，并将其放回队列末尾
+            clock_status[current_frame] = 0;  // 设置为未使用状态
+            clock_list.push_back(current_frame);
+        }
+    }
+    return false;  // 没有找到可以被替换的页
+  }
+   ```
+
+2. **Pin操作**：将页面从替换器中移除
+   ```cpp
+   // 从clock_list中移除指定页面
+   // 清除对应的状态信息
+   void CLOCKReplacer::Pin(frame_id_t frame_id) {
+    // 如果页存在于replacer中，将其状态设置为未使用
+    if (clock_status.find(frame_id) != clock_status.end()) {
+        clock_list.remove(frame_id);  // 从列表中移除该页
+        clock_status.erase(frame_id);  // 从状态映射中移除该页
+    }
+  }
+   ```
+
+3. **Unpin操作**：将页面添加到替换器中
+   ```cpp
+   // 检查容量是否合法
+   // 检查是否在clock_list中，如果在则更新引用位为1
+   // 如果不在，则先检查容量是否满，
+   // 必要时先执行Victim，再将页面添加到clock_list末尾
+   // 设置引用位为1（表示刚被使用）
+   void CLOCKReplacer::Unpin(frame_id_t frame_id) {
+    if(clock_list.size() > capacity) {
+        LOG(ERROR) << "CLOCKReplacer is over capacity: " << clock_list.size() << " > " << capacity;
+        return;  
+    }
+
+    if (clock_status.find(frame_id) != clock_status.end()) {
+        // 如果页已经存在于replacer中，将其状态设置为使用
+        clock_status[frame_id] = 1;  // 设置为使用状态
+    } else {
+        if(clock_list.size() == capacity) {
+        frame_id_t victim_frame_id;
+        if (!Victim(&victim_frame_id)) {
+            LOG(ERROR) << "Cannot unpin page " << frame_id << ": Capacity Full And Victim Failed";
+            return;  // 👈 Victim失败时应该返回
+        }
+        }
+        // 如果页不存在于replacer中，添加它
+        if (clock_list.size() < capacity) {
+            clock_list.push_back(frame_id);
+            clock_status[frame_id] = 1;  // 设置为使用状态
+        }
+    }
+  }
+  ```
+
+**算法优势**：
+
+- 实现简单，减少了系统复杂度
+- 内存开销小，并发性能好
+
+**Clock Replacer的测试设计**：
+
+- **单元测试**：使用gTest框架编写单元测试，验证页面替换逻辑的正确性
+
+**测试用例详细说明**：
+
+1. **基本功能测试**：
+   - 测试多个页面的Unpin操作，验证Size()返回正确的页面数量
+   - 测试重复Unpin同一页面只更新引用位而不增加Size
+
+2. **Clock算法核心逻辑测试**：
+   - 验证两轮扫描机制：第一轮将所有引用位为1的页面设为0并重新排队
+   - 第二轮扫描时选择引用位为0的页面进行替换，按FIFO顺序
+   - 测试连续3次Victim操作按正确顺序(1→2→3)返回页面
+
+3. **Pin/Unpin交互测试**：
+   - 验证Pin操作正确移除页面，Size相应减少
+   - 测试对已被Victim的页面执行Pin操作无效果
+   - 验证重新Unpin页面后引用位正确设置为1
+
+4. **容量限制和Victim触发测试**：
+   - 测试达到容量上限(5个页面)时再Unpin新页面会自动触发Victim
+   - 验证Victim操作成功后新页面被正确添加到队列末尾
+   - 测试最终Size保持在容量限制内
+
+**测试覆盖的关键场景**：
+- Clock指针的循环移动逻辑
+- 引用位的正确设置和清除
+- 页面在队列中的正确位置管理
+- 多轮扫描后的确定性行为
+
+```cpp
+TEST(CLOCKReplacerTest, SampleTest) {
+    CLOCKReplacer clock_replacer(7);
+
+    // Scenario: unpin six elements, i.e. add them to the replacer.
+    clock_replacer.Unpin(1);
+    clock_replacer.Unpin(2);
+    clock_replacer.Unpin(3);
+    clock_replacer.Unpin(4);
+    clock_replacer.Unpin(5);
+    clock_replacer.Unpin(6);
+    clock_replacer.Unpin(1);  // 重复unpin，只是重新设置引用位
+    EXPECT_EQ(6, clock_replacer.Size());
+
+    // Scenario: get victims from the clock replacer.
+    // 第一轮：所有页面引用位都是1，会被设置为0并重新入队
+    // 第二轮：找到引用位为0的页面进行替换（按添加顺序）
+    int value;
+    clock_replacer.Victim(&value);
+    EXPECT_EQ(1, value);  // 第一个添加的页面
+    clock_replacer.Victim(&value);
+    EXPECT_EQ(2, value);  // 第二个添加的页面
+    clock_replacer.Victim(&value);
+    EXPECT_EQ(3, value);  // 第三个添加的页面
+
+    // Scenario: pin elements in the replacer.
+    // Note that 3 has already been victimized, so pinning 3 should have no effect.
+    clock_replacer.Pin(3);  // 无效果，因为3已经被移除
+    clock_replacer.Pin(4);  // 移除4
+    EXPECT_EQ(2, clock_replacer.Size());  // 剩余5,6
+
+    // Scenario: unpin 4. We expect that the reference bit of 4 will be set to 1.
+    clock_replacer.Unpin(4);  // 重新添加4，引用位设为1
+    EXPECT_EQ(3, clock_replacer.Size());  // 现在有5,6,4
+
+    // Scenario: continue looking for victims.
+    clock_replacer.Victim(&value);
+    EXPECT_EQ(5, value);  // 5的引用位在第一轮被设为0
+    clock_replacer.Victim(&value);
+    EXPECT_EQ(6, value);  // 6的引用位在第一轮被设为0
+    clock_replacer.Victim(&value);
+    EXPECT_EQ(4, value);  // 4刚添加，引用位为1，需要两轮才能被替换
+
+    // 新的测试场景
+    CLOCKReplacer clock_replacer_new(5);
+    clock_replacer_new.Unpin(1);
+    clock_replacer_new.Unpin(2);
+    clock_replacer_new.Unpin(3);
+    clock_replacer_new.Unpin(4);
+    clock_replacer_new.Unpin(5);
+    // 容量已满，再unpin会触发victim操作
+    clock_replacer_new.Unpin(6);  // 这会先victim一个页面，然后添加6
+    EXPECT_EQ(5, clock_replacer_new.Size());
+    // 测试基本的victim顺序
+    clock_replacer_new.Victim(&value);
+    // 刚才Unpin(6)时，1先被设置为0，然后被victim掉了，最后在队末尾添加了6，所以下一步是2
+    EXPECT_EQ(2, value);
+}
+```
 ### Record Manager模块
 
 Record Manager模块负责管理数据表中的所有记录，是数据库存储层的核心组件。该模块提供了记录的插入、删除、更新和查找等基本操作，并为上层执行引擎提供统一的数据访问接口。
@@ -959,7 +1142,7 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 - 谓词下推减少不必要的数据传输
 
 **存储优化**：
-- 页面压缩技术减少I/O开销
+- 页面压缩技术减少I/O 开销
 - 智能预读机制提高缓存命中率
 
 ## 项目总结与展望
