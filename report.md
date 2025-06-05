@@ -962,6 +962,10 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 
 <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/image-20240609002723694.png" alt="image-20240609002723694" style="zoom:50%;" />
 
+#### 思考题
+
+
+
 ## 实现细节和技术亮点
 
 ### 内存管理优化
