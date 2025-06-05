@@ -6,7 +6,7 @@
     </br></br></br></br></br>
     <div style="width:60%;margin: 0 auto;height:0;padding-bottom:40%;">
         <img src="https://raw.githubusercontent.com/Keldos-Li/pictures/main/typora-latex-theme/ZJU-logo.svg" alt="校徽" style="width:100%;"/>
-	</div>
+  </div>
     </br></br></br></br></br></br></br></br>
     <span style="font-family:华文黑体Bold;text-align:center;font-size:20pt;margin: 10pt auto;line-height:30pt;">《MiniSQL》</span>
     <p style="text-align:center;font-size:14pt;margin: 0 auto">实验报告 </p>
@@ -14,30 +14,30 @@
     </br>
     <table style="border:none;text-align:center;width:72%;font-family:仿宋;font-size:14px; margin: 0 auto;">
     <tbody style="font-family:方正公文仿宋;font-size:12pt;">
-    	<tr style="font-weight:normal;"> 
-    		<td style="width:20%;text-align:right;">题　　目</td>
-    		<td style="width:2%">：</td> 
-    		<td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋"> MinisSQL设计与实现</td>     </tr>
-    	<tr style="font-weight:normal;"> 
-    		<td style="width:20%;text-align:right;">上课时间</td>
-    		<td style="width:2%">：</td> 
-    		<td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋">    周二6、7、8 </td> </tr>
-    	<tr style="font-weight:normal;"> 
-    		<td style="width:20%;text-align:right;">授课教师</td>
-    		<td style="width:2%">：</td> 
-    		<td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋">苗晓晔 </td>     </tr>
-    	<tr style="font-weight:normal;"> 
-    		<td style="width:20%;text-align:right;">姓　　名</td>
-    		<td style="width:2%">：</td> 
-    		<td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋"> 宋嘉民、钱满亮、汪晨雨</td>     </tr>
-    	<tr style="font-weight:normal;"> 
-    		<td style="width:20%;text-align:right;">组　　别</td>
-    		<td style="width:%">：</td> 
-    		<td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋"> 30 </td>   </tr>
-    	<tr style="font-weight:normal;"> 
-    		<td style="width:20%;text-align:right;">日　　期</td>
-    		<td style="width:2%">：</td> 
-    		<td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋">2025春夏学期</td>     </tr>
+      <tr style="font-weight:normal;"> 
+        <td style="width:20%;text-align:right;">题　　目</td>
+        <td style="width:2%">：</td> 
+        <td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋"> MinisSQL设计与实现</td>     </tr>
+      <tr style="font-weight:normal;"> 
+        <td style="width:20%;text-align:right;">上课时间</td>
+        <td style="width:2%">：</td> 
+        <td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋">    周二6、7、8 </td> </tr>
+      <tr style="font-weight:normal;"> 
+        <td style="width:20%;text-align:right;">授课教师</td>
+        <td style="width:2%">：</td> 
+        <td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋">苗晓晔 </td>     </tr>
+      <tr style="font-weight:normal;"> 
+        <td style="width:20%;text-align:right;">姓　　名</td>
+        <td style="width:2%">：</td> 
+        <td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋"> 宋嘉民、钱满亮、汪晨雨</td>     </tr>
+      <tr style="font-weight:normal;"> 
+        <td style="width:20%;text-align:right;">组　　别</td>
+        <td style="width:%">：</td> 
+        <td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋"> 30 </td>   </tr>
+      <tr style="font-weight:normal;"> 
+        <td style="width:20%;text-align:right;">日　　期</td>
+        <td style="width:2%">：</td> 
+        <td style="width:40%;font-weight:normal;border-bottom: 1px solid;text-align:center;font-family:华文仿宋">2025春夏学期</td>     </tr>
     </tbody>              
     </table>
 </div>
@@ -209,19 +209,20 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
 **核心算法逻辑**：
 
 1. **Victim操作**：实现页面淘汰选择
+   1. 遍历clock_list寻找可替换页面
+   2. 如果页面引用位为0，直接替换
+   3. 如果页面引用位为1，设置为0并重新排队
+   
    ```cpp
-   // 遍历clock_list寻找可替换页面
-   // 如果页面引用位为0，直接替换
-   // 如果页面引用位为1，设置为0并重新排队
    bool CLOCKReplacer::Victim(frame_id_t *frame_id) {
     if (clock_list.empty()) {
         return false;  // 没有可以被替换的页
     }
-
+   
     while (!clock_list.empty()) {
         frame_id_t current_frame = clock_list.front();
         clock_list.pop_front();
-
+   
         // 如果当前页是未被pin的页
         if (clock_status[current_frame] == 0) {
             *frame_id = current_frame;
@@ -234,35 +235,37 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
         }
     }
     return false;  // 没有找到可以被替换的页
-  }
+    }
    ```
 
 2. **Pin操作**：将页面从替换器中移除
+   1. 从clock_list中移除指定页面
+   2. 清除对应的状态信息
+   
    ```cpp
-   // 从clock_list中移除指定页面
-   // 清除对应的状态信息
    void CLOCKReplacer::Pin(frame_id_t frame_id) {
     // 如果页存在于replacer中，将其状态设置为未使用
     if (clock_status.find(frame_id) != clock_status.end()) {
         clock_list.remove(frame_id);  // 从列表中移除该页
         clock_status.erase(frame_id);  // 从状态映射中移除该页
     }
-  }
+    }
    ```
 
 3. **Unpin操作**：将页面添加到替换器中
+   1. 检查容量是否合法
+   2. 检查是否在clock_list中，如果在则更新引用位为1
+   3. 如果不在，则先检查容量是否满，
+   4. 必要时先执行Victim，再将页面添加到clock_list末尾
+   5. 设置引用位为1（表示刚被使用）
+   
    ```cpp
-   // 检查容量是否合法
-   // 检查是否在clock_list中，如果在则更新引用位为1
-   // 如果不在，则先检查容量是否满，
-   // 必要时先执行Victim，再将页面添加到clock_list末尾
-   // 设置引用位为1（表示刚被使用）
    void CLOCKReplacer::Unpin(frame_id_t frame_id) {
     if(clock_list.size() > capacity) {
         LOG(ERROR) << "CLOCKReplacer is over capacity: " << clock_list.size() << " > " << capacity;
         return;  
     }
-
+    
     if (clock_status.find(frame_id) != clock_status.end()) {
         // 如果页已经存在于replacer中，将其状态设置为使用
         clock_status[frame_id] = 1;  // 设置为使用状态
@@ -280,8 +283,7 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
             clock_status[frame_id] = 1;  // 设置为使用状态
         }
     }
-  }
-  ```
+    }
 
 **算法优势**：
 
@@ -378,6 +380,9 @@ TEST(CLOCKReplacerTest, SampleTest) {
     EXPECT_EQ(2, value);
 }
 ```
+
+
+
 ### Record Manager模块
 
 Record Manager模块负责管理数据表中的所有记录，是数据库存储层的核心组件。该模块提供了记录的插入、删除、更新和查找等基本操作，并为上层执行引擎提供统一的数据访问接口。
@@ -950,19 +955,19 @@ dberr_t ExecuteEngine::ExecutePlan(const AbstractPlanNodeRef &plan,
 
 Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目中作为独立模块，但其设计思想遵循了工业级数据库的恢复机制。
 
-#### **核心组件**
+#### 核心组件
 
 1. **日志结构（LogRec）**：定义了插入、删除、更新等操作的日志格式
 2. **检查点（CheckPoint）**：包含数据库的完整状态快照
 3. **恢复管理器（RecoveryManager）**：实现Redo和Undo两个恢复阶段
 
-#### **恢复策略**
+#### 恢复策略
 
 采用经典的Write-Ahead Logging (WAL)策略：
 - **Redo阶段**：重做所有已提交但未写入磁盘的事务
 - **Undo阶段**：回滚所有未提交的事务
 
-#### **设计考量**
+#### 设计考量
 
 为了降低实现复杂度，我们采用了以下简化策略：
 - 日志仅在内存中维护，不涉及磁盘持久化
