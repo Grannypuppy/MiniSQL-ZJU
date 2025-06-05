@@ -298,42 +298,68 @@ dberr_t CatalogManager::GetTableIndexes(const string &table_name, vector<IndexIn
  * TODO: Student Implement
  */
 dberr_t CatalogManager::DropTable(const string &table_name) {
-    // 检查表是否存在
-    auto table_iter = table_names_.find(table_name);
-    if (table_iter == table_names_.end()) {
-        return DB_TABLE_NOT_EXIST;
-    }
-    
-    table_id_t table_id = table_iter->second;
-    TableInfo *table_info = tables_[table_id];
-    
-    // 1.删除相关的所有索引
-    auto index_iter = index_names_.find(table_name);
-    if (index_iter != index_names_.end()) {
-        for (const auto &pair : index_iter->second) {
-            DropIndex(table_name, pair.first);  // 删除每个索引
-        }
-        //index_names_.erase(index_iter);
-    }
+  // 初始化 table_info
+  TableInfo *table_info = nullptr;
 
-    TableHeap *table_heap = table_info->GetTableHeap();
-    if (table_heap != nullptr) {
-        table_info->GetTableHeap()->DeleteTable(table_heap->GetFirstPageId());
-    }
-    
-    delete table_info;
-    tables_.erase(table_id);
-    table_names_.erase(table_name);
+  // 检查表是否存在
+  if (GetTable(table_name, table_info) != DB_SUCCESS) {
+    return DB_TABLE_NOT_EXIST;
+  }
+  ASSERT(table_info != nullptr, "GetTable succeeded but table_info is null.");
 
-    // 删除表的元数据页
-    buffer_pool_manager_->DeletePage(catalog_meta_->table_meta_pages_[table_id]);
-    catalog_meta_->table_meta_pages_.erase(table_id);
-    
-    // 删除表对象
-    // 更新catalog元数据
-    FlushCatalogMetaPage();
-    
-    return DB_SUCCESS;
+  table_id_t table_id = table_info->GetTableId(); // 获取 table_id
+
+  // 删除与该表关联的所有索引
+  std::vector<std::string> index_names_to_drop;
+  if (auto it_table_indexes_map_entry = index_names_.find(table_name);
+      it_table_indexes_map_entry != index_names_.end()) {
+    for (const auto &name_id_pair : it_table_indexes_map_entry->second) {
+      index_names_to_drop.push_back(name_id_pair.first);
+    }
+  }
+
+  for (const std::string &idx_name_to_drop : index_names_to_drop) {
+    dberr_t drop_idx_res = DropIndex(table_name, idx_name_to_drop); // 这个 DropIndex 会调用 FlushCatalogMetaPage
+    if (drop_idx_res != DB_SUCCESS) {
+      LOG(ERROR) << "Failed to drop index '" << idx_name_to_drop << "' for table '" << table_name
+                 << "' during DropTable. Aborting DropTable partially completed.";
+      return drop_idx_res;
+    }
+  }
+
+  // 删除表堆管理的所有数据页
+  TableHeap *table_heap = table_info->GetTableHeap();
+  if (table_heap != nullptr) {
+    table_heap->FreeTableHeap(); // FreeTableHeap 会遍历并删除所有相关页面
+  }
+
+  // 删除表元数据页面并从 catalog_meta_ 中移除记录
+  page_id_t table_meta_page_id = INVALID_PAGE_ID;
+  bool meta_page_entry_found_in_catalog = false;
+  if (catalog_meta_ != nullptr && catalog_meta_->GetTableMetaPages() != nullptr) {
+    auto it_meta = catalog_meta_->GetTableMetaPages()->find(table_id);
+    if (it_meta != catalog_meta_->GetTableMetaPages()->end()) {
+      table_meta_page_id = it_meta->second;
+      // 先从映射中移除，再删除页面，以防删除页面失败但映射已改
+      catalog_meta_->GetTableMetaPages()->erase(it_meta);
+      meta_page_entry_found_in_catalog = true;
+    } else {
+      LOG(WARNING) << "Table ID " << table_id << " (name: " << table_name
+                   << ") not found in catalog_meta_->table_meta_pages_ during DropTable.";
+    }
+  }
+  if (meta_page_entry_found_in_catalog && table_meta_page_id != INVALID_PAGE_ID) {
+    buffer_pool_manager_->DeletePage(table_meta_page_id);
+  }
+
+  table_names_.erase(table_name);
+  tables_.erase(table_id); // 从 tables_ 映射中移除指针
+
+  delete table_info;
+  table_info = nullptr;
+  FlushCatalogMetaPage(); 
+
+  return DB_SUCCESS;
 }
 
 /**
@@ -341,6 +367,7 @@ dberr_t CatalogManager::DropTable(const string &table_name) {
  */
 dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_name) {
     // 检查表和索引是否存在
+    //LOG(WARNING)<< "Dropping index: " << index_name << " for table: " << table_name;
     auto table_iter = index_names_.find(table_name);
     if (table_iter == index_names_.end()) {
         return DB_TABLE_NOT_EXIST;
@@ -354,7 +381,7 @@ dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_
     index_id_t index_id = index_iter->second;
 
     IndexInfo *index_info = indexes_.find(index_id)->second;
-
+    //LOG(INFO) << "Dropping index: " << index_name << " with ID: " << index_id;
     delete index_info;
     indexes_.erase(index_id);
     table_iter->second.erase(index_name);

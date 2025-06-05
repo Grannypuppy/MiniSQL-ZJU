@@ -30,9 +30,6 @@ ExecuteEngine::ExecuteEngine() {
     mkdir("./databases", 0777);
     dir = opendir(path);
   }
-  /** When you have completed all the code for
-   *  the test, run it using main.cpp and uncomment
-   *  this part of the code.
   struct dirent *stdir;
   while((stdir = readdir(dir)) != nullptr) {
     if( strcmp( stdir->d_name , "." ) == 0 ||
@@ -41,7 +38,7 @@ ExecuteEngine::ExecuteEngine() {
       continue;
     dbs_[stdir->d_name] = new DBStorageEngine(stdir->d_name, false);
   }
-   **/
+  
   closedir(dir);
 }
 
@@ -344,252 +341,259 @@ dberr_t ExecuteEngine::ExecuteShowTables(pSyntaxNode ast, ExecuteContext *contex
 }
 
 /**
- * TODO: Student Implement - Done
+ * TODO: Student Implement
  */
 struct ParsedColumnInfo {
-    std::string name;
-    TypeId type_id{TypeId::kTypeInvalid};
-    uint32_t len_for_char = 0;
-    bool is_unique_from_col_def = false;
-    bool is_not_null_from_col_def = false;
+  std::string column_name;
+  TypeId type_id{TypeId::kTypeInvalid};
+  uint32_t len_for_char{0};
+  bool is_not_null{false};
+  bool is_unique{false};
 };
 dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *context) {
 #ifdef ENABLE_EXECUTE_DEBUG
   LOG(INFO) << "ExecuteCreateTable" << std::endl;
 #endif
 
-  // 验证执行环境
-  if (context == nullptr || current_db_.empty())
-  {
-    LOG(ERROR) << "Execute context is null or no database selected.";
+  if (context == nullptr || current_db_.empty()) {
+    std::cout << "context null Or No database selected." << std::endl;
     return DB_FAILED;
   }
   CatalogManager *catalog_manager = context->GetCatalog();
-  if (catalog_manager == nullptr) 
+  if (catalog_manager == nullptr) {
+    LOG(ERROR) << "Critical error: CatalogManager is null in ExecuteContext for database " << current_db_;
     return DB_FAILED;
-  
+  }
   Txn *txn = context->GetTransaction();
 
-  // 获取表名
+  //获取表
   if (ast == nullptr || ast->type_ != kNodeCreateTable || ast->child_ == nullptr ||
       ast->child_->type_ != kNodeIdentifier || ast->child_->val_ == nullptr) {
-    LOG(ERROR) << "Syntax error: Invalid AST structure for CREATE TABLE statement.";
+    LOG(ERROR) << "Syntax error: Invalid AST structure for CREATE TABLE statement (missing table name).";
     return DB_FAILED;
   }
   std::string table_name(ast->child_->val_);
   if (table_name.empty()) {
-      LOG(ERROR) << "Syntax error: Table name cannot be empty.";
-      return DB_FAILED;
+    LOG(ERROR) << "Syntax error: Table name for CREATE TABLE cannot be empty.";
+    return DB_FAILED;
   }
-
-  // 初始化用于解析的变量
+  //LOG(WARNING)<<"flag1"<<std::endl;
+  // 初始化变量解析
   std::vector<ParsedColumnInfo> parsed_col_definitions;
-  std::vector<std::string> pk_column_names_from_ast;
-  std::set<std::string> pk_column_set_for_lookup;
+  std::vector<std::string> parsed_column_list_from_ast;
+  std::set<std::string> parsed_column_set_for_lookup;
 
-  // 遍历列定义和主键列表
   pSyntaxNode col_def_list_node = ast->child_->next_;
   if (col_def_list_node == nullptr || col_def_list_node->type_ != kNodeColumnDefinitionList) {
-    LOG(ERROR) << "Syntax error: CREATE TABLE missing column definition list for table '" << table_name << "'.";
+    LOG(ERROR) << "Syntax error: Invalid column definition list in CREATE TABLE statement.";
     return DB_FAILED;
   }
 
   pSyntaxNode current_item_node = col_def_list_node->child_;
+  
+
   while (current_item_node != nullptr) {
+    //LOG(WARNING)<<"flag2"<<std::endl;
+    
     if (current_item_node->type_ == kNodeColumnDefinition) {
-      ParsedColumnInfo pci;
+      ParsedColumnInfo parsed_col_info;
       pSyntaxNode col_name_node = current_item_node->child_;
-      if (!col_name_node || col_name_node->type_ != kNodeIdentifier || !col_name_node->val_) {
-        LOG(ERROR) << "Syntax error: Malformed column definition - missing column name.";
+      if (col_name_node == nullptr || col_name_node->type_ != kNodeIdentifier || col_name_node->val_ == nullptr) {
+        LOG(ERROR) << "Syntax error: Column name missing in column definition.";
         return DB_FAILED;
       }
-      pci.name = col_name_node->val_;
+    
+    parsed_col_info.column_name = col_name_node->val_;
 
-      pSyntaxNode col_type_node = col_name_node->next_;
-      if (!col_type_node || col_type_node->type_ != kNodeColumnType) {
-        LOG(ERROR) << "Syntax error: Malformed column definition - missing column type for column '" << pci.name << "'.";
+    pSyntaxNode col_type_node = col_name_node->next_;
+    if (col_type_node == nullptr || col_type_node->type_ != kNodeColumnType) {
+      LOG(ERROR) << "Syntax error: Column type missing in column definition for column '" << parsed_col_info.column_name << "'.";
+      return DB_FAILED;
+    }
+
+    std::string col_type_str(col_type_node->val_);
+    std::transform(col_type_str.begin(), col_type_str.end(), col_type_str.begin(), ::tolower);
+    //LOG(WARNING)<<"flag3 & col_type_str: "<<col_type_str<<std::endl;
+    if (col_type_str == "int") {
+      parsed_col_info.type_id = TypeId::kTypeInt;
+      //LOG(WARNING)<<"flag_int"<<std::endl;
+    } else if (col_type_str == "float") {
+      parsed_col_info.type_id = TypeId::kTypeFloat;
+      //LOG(WARNING)<<"flag_float"<<std::endl;
+    } else if (col_type_str == "char") {
+      //LOG(WARNING)<<"col_type_str is char, parsing length";
+      parsed_col_info.type_id = TypeId::kTypeChar;
+      pSyntaxNode col_length_node = col_type_node->child_;
+      if (col_length_node == nullptr || col_length_node->type_ != kNodeNumber) {
+        LOG(ERROR) << "Syntax error: CHAR Length missing for CHAR type in column '" << parsed_col_info.column_name << "'.";
         return DB_FAILED;
       }
-
-      std::string type_name_str(col_type_node->val_);
-      std::transform(type_name_str.begin(), type_name_str.end(), type_name_str.begin(), ::tolower);
-
-      if (type_name_str == "int") {
-        pci.type_id = TypeId::kTypeInt;
-      } else if (type_name_str == "float") {
-        pci.type_id = TypeId::kTypeFloat;
-      } else if (type_name_str == "char") {
-        pci.type_id = TypeId::kTypeChar;
-        pSyntaxNode char_len_node = col_type_node->child_;
-        if (!char_len_node || char_len_node->type_ != kNodeNumber || !char_len_node->val_) {
-          LOG(ERROR) << "Syntax error: CHAR type requires a length for column '" << pci.name << "'.";
+      std::string char_len_str(col_length_node->val_);
+      //LOG(WARNING)<<"flag_char_len_str: "<<char_len_str<<std::endl;
+      if(char_len_str.empty()) {
+        LOG(ERROR) << "Syntax error: CHAR Length cannot be empty for column '" << parsed_col_info.column_name << "'.";
+        return DB_FAILED;
+      }
+      if (char_len_str.find('.')!=std::string::npos) {
+        LOG(ERROR) << "Syntax error: CHAR Length cannot be a float for column '" << parsed_col_info.column_name << "'.";
+        return DB_FAILED;
+      }
+      if (char_len_str.find('-')!=std::string::npos) {
+        LOG(ERROR) << "Syntax error: CHAR Length cannot be negative for column '" << parsed_col_info.column_name << "'.";
+        return DB_FAILED;
+      }
+      try {
+        unsigned long char_len = std::stoul(char_len_str);
+        if (char_len > std::numeric_limits<uint32_t>::max()) {
+          LOG(ERROR) << "Syntax error: CHAR Length exceeds maximum allowed length for column '" << parsed_col_info.column_name << "'.";
           return DB_FAILED;
         }
-        std::string len_str(char_len_node->val_);
-        // 是否为负数
-        if (len_str.find('-') != std::string::npos) {
-            LOG(ERROR) << "Syntax error: Length for CHAR column '" << pci.name << "' cannot be negative ('" << len_str << "').";
-            return DB_FAILED;
-        }
-        // 是否为小数 (如果字符串中包含 '.')
-        if (len_str.find('.') != std::string::npos) {
-            LOG(ERROR) << "Syntax error: Length for CHAR column '" << pci.name << "' must be an integer, not a decimal ('" << len_str << "').";
-            return DB_FAILED;
-        }
-        try {
-          unsigned long parsed_len_ul = std::stoul(len_str); 
-          // 是否会溢出 uint32_t
-          if (parsed_len_ul > std::numeric_limits<uint32_t>::max()) {
-              LOG(ERROR) << "Syntax error: Length for CHAR column '" << pci.name << "' is too large ('" << len_str << "').";
-              return DB_FAILED;
-          }
-          pci.len_for_char = static_cast<uint32_t>(parsed_len_ul);
-
-        } catch (const std::invalid_argument &ia) {
-          LOG(ERROR) << "Syntax error: Invalid character in length specification for CHAR column '" << pci.name << "' ('" << len_str << "'). Length must be a positive integer.";
+        parsed_col_info.len_for_char = static_cast<uint32_t>(char_len);
+      } catch (const std::invalid_argument &ia) {
+          LOG(ERROR) << "Syntax error: Invalid character in length specification for CHAR column '" << parsed_col_info.column_name << "' ('" << char_len_str << "'). Length must be a positive integer.";
           return DB_FAILED;
         } catch (const std::out_of_range &oor) {
-          LOG(ERROR) << "Syntax error: Length for CHAR column '" << pci.name << "' is out of range for unsigned long ('" << len_str << "').";
+          LOG(ERROR) << "Syntax error: Length for CHAR column '" << parsed_col_info.column_name << "' is out of range for unsigned long ('" << char_len_str << "').";
           return DB_FAILED;
         }
+        if (parsed_col_info.len_for_char == 0) {
+          LOG(ERROR) << "Invalid length " << parsed_col_info.len_for_char << " for CHAR column '" << parsed_col_info.column_name<< "'. Must be a positive integer greater than 0";
+          return DB_FAILED;
+        }
+    } else {
+      LOG(ERROR) << "Syntax error: Unsupported column type '" << col_type_str << "' in column definition.";
+      return DB_FAILED;
+    }
 
-        if (pci.len_for_char == 0) {
-          LOG(ERROR) << "Invalid length " << pci.len_for_char << " for CHAR column '" << pci.name
-                     << "'. Must be a positive integer greater than 0";
-          return DB_FAILED;
-        }
-      } else {
-        LOG(ERROR) << "Unsupported column type '" << type_name_str << "' for column '" << pci.name << "'.";
-        return DB_FAILED;
+    if (current_item_node->val_ != nullptr) {
+      std::string constraints(current_item_node->val_);
+      std::transform(constraints.begin(), constraints.end(), constraints.begin(), ::tolower);
+      if (constraints.find("not null") != std::string::npos) {
+        parsed_col_info.is_not_null = true;
       }
+      if (constraints.find("unique") != std::string::npos) {
+        parsed_col_info.is_unique = true;
+      }
+    }
+    parsed_col_definitions.push_back(parsed_col_info);
 
-      // 解析列级约束 (UNIQUE, NOT NULL)
-      // 约束是 current_item_node,其 val_ 是 "UNIQUE" 或 "NOT NULL"
-      if (current_item_node->val_ != nullptr) {
-          std::string constraint_val(current_item_node->val_);
-          std::transform(constraint_val.begin(), constraint_val.end(), constraint_val.begin(), ::tolower);
-          //LOG(INFO) << "constrain detect start!";
-          if (constraint_val == "unique") {
-              pci.is_unique_from_col_def = true;
-              //LOG(INFO) << "unique constrain detected!";
-          } else if (constraint_val == "not null" ) {
-              std::string next_val(current_item_node->val_);
-              std::transform(next_val.begin(), next_val.end(), next_val.begin(), ::tolower);
-              pci.is_not_null_from_col_def = true;
-          }
-      }
-      parsed_col_definitions.push_back(pci);
-    } else if (current_item_node->type_ == kNodeColumnList) {
-      // 在 kNodeColumnDefinitionList 中，如果出现 kNodeColumnList 类型的节点，它就代表 PRIMARY KEY (...) 子句。
-      if (!pk_column_names_from_ast.empty()) { // 只允许一个主键定义
-          LOG(ERROR) << "Syntax error: Multiple PRIMARY KEY definitions for table '" << table_name << "'.";
+    }else if (current_item_node->type_ == kNodeColumnList) {
+      // 处理列列表
+      pSyntaxNode col_list_node = current_item_node->child_;
+      while (col_list_node != nullptr) {
+        if (col_list_node->type_ == kNodeIdentifier && col_list_node->val_ != nullptr) {
+          ParsedColumnInfo parsed_col_info;
+          parsed_col_info.column_name = col_list_node->val_;
+          parsed_column_list_from_ast.push_back(parsed_col_info.column_name);
+          parsed_column_set_for_lookup.insert(parsed_col_info.column_name);
+          col_list_node = col_list_node->next_;
+        } else {
+          LOG(ERROR) << "Syntax error: Expected column name in PRIMARY KEY constraint for table '" << table_name << "'.";
           return DB_FAILED;
-      }
-      pSyntaxNode pk_col_name_node = current_item_node->child_;
-      while (pk_col_name_node != nullptr) {
-        if (pk_col_name_node->type_ != kNodeIdentifier || pk_col_name_node->val_ == nullptr) {
-            LOG(ERROR) << "Syntax error: Expected column name in PRIMARY KEY constraint for table '" << table_name << "'.";
-            return DB_FAILED;
         }
-        std::string pk_name(pk_col_name_node->val_);
-        pk_column_names_from_ast.push_back(pk_name);
-        pk_column_set_for_lookup.insert(pk_name);
-        pk_col_name_node = pk_col_name_node->next_;
+        col_list_node = col_list_node->next_;
       }
     } else {
-        LOG(ERROR) << "Syntax error: Unexpected node type '" << GetSyntaxNodeTypeStr(current_item_node->type_)
-                   << "' in column definition list for table '" << table_name << "'.";
-        return DB_FAILED;
-    }
+      LOG(ERROR) << "Syntax error: Invalid node type in column definition list.";
+      return DB_FAILED;
+    }  
     current_item_node = current_item_node->next_;
   }
 
-  if (parsed_col_definitions.empty()) {
-    LOG(ERROR) << "Syntax error: No columns defined for table '" << table_name << "'.";
+  if (parsed_col_definitions.empty() && parsed_column_list_from_ast.empty()) {
+    LOG(ERROR) << "Syntax error: No columns defined in CREATE TABLE statement for table '" << table_name << "'.";
     return DB_FAILED;
   }
 
-  // 验证主键列名是否都在已定义的列中
-  for (const auto& pk_name : pk_column_names_from_ast) {
-      bool found = false;
-      for (const auto& pci : parsed_col_definitions) { if (pci.name == pk_name) { found = true; break; } }
-      if (!found) {
-          LOG(ERROR) << "Syntax error: Column '" << pk_name << "' in PRIMARY KEY constraint not defined in table '" << table_name << "'.";
-          ExecuteInformation(DB_COLUMN_NAME_NOT_EXIST); return DB_COLUMN_NAME_NOT_EXIST;
+  // 验证主键的列名是否都在已经定义的列中
+  for (const auto &col_name : parsed_column_list_from_ast) {
+    bool check = false;
+    for (const auto &parsed_col_def : parsed_col_definitions) {
+      if (parsed_col_def.column_name == col_name) {
+        // 如果列名在定义中，跳过检查
+        check = true;
+        break;
       }
+    }
+    if (!check) {
+      LOG(ERROR) << "Syntax error: Column '" << col_name << "' in PRIMARY KEY constraint not defined in table '" << table_name << "'.";
+      ExecuteInformation(DB_COLUMN_NAME_NOT_EXIST); 
+      return DB_COLUMN_NAME_NOT_EXIST;
+    }
   }
 
-  // 创建 Column 对象
-  std::vector<Column *> actual_cols_for_schema;
-  actual_cols_for_schema.reserve(parsed_col_definitions.size());
-  uint32_t col_idx_counter = 0; 
-  for (const auto &pci : parsed_col_definitions) {
-    bool is_primary_key_col = (pk_column_set_for_lookup.count(pci.name) > 0);
-    bool is_nullable_for_constructor = !is_primary_key_col && !pci.is_not_null_from_col_def;
-    bool is_unique_for_constructor = pci.is_unique_from_col_def || is_primary_key_col;
-
-    Column *new_column = nullptr;
-    if (pci.type_id == TypeId::kTypeChar) {
-      new_column = new Column(pci.name, pci.type_id, pci.len_for_char, col_idx_counter, is_nullable_for_constructor, is_unique_for_constructor);
+  // 开始创建Column对象
+  std::vector<Column*> columns;
+  uint32_t index = 0;
+  for (const auto &parsed_col_def : parsed_col_definitions) {
+    bool is_primary_key = (parsed_column_set_for_lookup.find(parsed_col_def.column_name) != parsed_column_set_for_lookup.end());
+    bool is_unique = parsed_col_def.is_unique || is_primary_key;
+    bool is_nullable = !parsed_col_def.is_not_null && !is_primary_key; // 主键列不能为NULL
+    
+    Column *column = nullptr;
+    if (parsed_col_def.type_id == TypeId::kTypeChar) {
+      column = new Column(parsed_col_def.column_name, parsed_col_def.type_id, parsed_col_def.len_for_char, index, is_nullable, is_unique);
     } else {
-      new_column = new Column(pci.name, pci.type_id, col_idx_counter, is_nullable_for_constructor, is_unique_for_constructor);
+      column = new Column(parsed_col_def.column_name, parsed_col_def.type_id, index, is_nullable, is_unique);
     }
-    actual_cols_for_schema.push_back(new_column);
-    col_idx_counter++;
+    columns.push_back(column);
+    index++;
   }
 
-  // 创建 Schema 对象
-  TableSchema *schema_to_pass_to_catalog = new Schema(actual_cols_for_schema, true);
+  // 根据columns创建Schema
+  TableSchema *schema = new TableSchema(columns, true);
 
-  // 调用 CatalogManager 创建表
-  TableInfo *created_table_info_ptr = nullptr;
-  dberr_t result = catalog_manager->CreateTable(table_name, schema_to_pass_to_catalog, txn, created_table_info_ptr);
+  // 调用CatalogManager的CreateTable方法
+  TableInfo *table_info = nullptr;
+  dberr_t create_result = catalog_manager->CreateTable(table_name, schema, txn, table_info);
 
-  // CatalogManager::CreateTable 内部会进行深拷贝，所以这里创建的 schema_to_pass_to_catalog 需要被删除
-  delete schema_to_pass_to_catalog;
-  schema_to_pass_to_catalog = nullptr;
+  delete schema; // 释放Schema内存(如果CreateTable成功，里面是深拷贝会开新的Schema对象)
 
-  if (result != DB_SUCCESS) {
-    ExecuteInformation(result);
-    return result;
+  if (create_result != DB_SUCCESS) {
+    LOG(ERROR) << "Failed to create table '" << table_name << "' in database '" << current_db_ << "'. Error code: " << create_result;
+    ExecuteInformation(create_result);
+    return create_result;
   }
 
-  // 创建主键索引 (如果定义了主键)
-  if (!pk_column_names_from_ast.empty()) {
-    std::string pk_index_name = table_name + "_PK";
-    IndexInfo *pk_index_info_output = nullptr;
-    dberr_t pk_idx_create_result = catalog_manager->CreateIndex(table_name, pk_index_name, pk_column_names_from_ast, txn, pk_index_info_output, "bptree");
-    if (pk_idx_create_result != DB_SUCCESS) {
-      LOG(ERROR) << "Table '" << table_name << "' created, but failed to create primary key index '" << pk_index_name << "'. Error code: " << pk_idx_create_result;
-      // 尝试回滚：删除已创建的表
-      dberr_t drop_res = catalog_manager->DropTable(table_name);
-      if (drop_res != DB_SUCCESS) {
-          LOG(ERROR) << "CRITICAL: Failed to rollback table '" << table_name << "' creation after PK index creation failed.";
-      } else {
-          //LOG(INFO) << "Successfully rolled back table '" << table_name << "' after PK index creation failure.";
+  // 创建primary_key的索引（如果有primary_key）
+  if(!parsed_column_list_from_ast.empty()) {
+    std::string index_name = table_name + "_primary_key";
+    IndexInfo *index_info = nullptr;
+    dberr_t index_create_result = catalog_manager->CreateIndex(table_name, index_name, parsed_column_list_from_ast, txn, index_info,"bptree");
+    if (index_create_result != DB_SUCCESS) {
+      LOG(ERROR) << "Failed to create primary key index '" << index_name << "' for table '" << table_name << "'. Error code: " << index_create_result<<endl;
+      // 尝试回滚，删除刚才创建的table
+      dberr_t drop_table_result = catalog_manager->DropTable(table_name);
+      if (drop_table_result != DB_SUCCESS) {
+        LOG(ERROR) << "Failed to rollback table '" << table_name << "' after index creation failure."<<endl;
       }
-      ExecuteInformation(pk_idx_create_result); // 调用修正
-      return pk_idx_create_result;
+      else {
+        LOG(INFO) << "Have Rolled back table '" << table_name << "' after Primary_Key index creation failure."<<endl;
+      }
+      ExecuteInformation(index_create_result);
+      return index_create_result;
     }
   }
 
-  // 创建其他唯一键索引 (基于列级 UNIQUE 非主键的列)
-  for (const auto& pci : parsed_col_definitions) {
-      if (pci.is_unique_from_col_def && pk_column_set_for_lookup.find(pci.name) == pk_column_set_for_lookup.end()) {
-          std::string uk_index_name = table_name + "_" + pci.name + "_UK"; // 示例命名
-          std::vector<std::string> uk_key_names = {pci.name};
-          IndexInfo *uk_index_info_output = nullptr;
-          dberr_t uk_idx_res = catalog_manager->CreateIndex(table_name, uk_index_name, uk_key_names, txn, uk_index_info_output, "bptree");
-          if (uk_idx_res != DB_SUCCESS) {
-              LOG(WARNING) << "Table '" << table_name << "' created, but failed to create unique index for column '" << pci.name << "'. Error: " << uk_idx_res;
-          }
+  // 根据其他unique键，创建索引
+  for (const auto& parsed_col_def : parsed_col_definitions) {
+    if (parsed_col_def.is_unique && parsed_column_set_for_lookup.find(parsed_col_def.column_name) == parsed_column_set_for_lookup.end()) {
+      std::string index_name = table_name + "_" + parsed_col_def.column_name + "_unique";
+      IndexInfo *index_info = nullptr;
+      dberr_t index_create_result = catalog_manager->CreateIndex(table_name, index_name, {parsed_col_def.column_name}, txn, index_info,"bptree");
+      if (index_create_result != DB_SUCCESS) {
+        LOG(WARNING) << "Failed to create unique index '" << index_name << "' for column '" << parsed_col_def.column_name << "' in table '" << table_name <<"'"<<endl;
       }
+    }
   }
+
+  LOG(INFO) << "Table '" << table_name << "' created successfully."<< std::endl;
+
   return DB_SUCCESS;
 }
 
 /**
- * TODO: Student Implement - Done
+ * TODO: Student Implement
  */
 dberr_t ExecuteEngine::ExecuteDropTable(pSyntaxNode ast, ExecuteContext *context) {
 #ifdef ENABLE_EXECUTE_DEBUG
@@ -616,7 +620,6 @@ dberr_t ExecuteEngine::ExecuteDropTable(pSyntaxNode ast, ExecuteContext *context
       LOG(ERROR) << "Syntax error: Table name for DROP TABLE cannot be empty.";
       return DB_FAILED;
   }
-
   // 尝试在 CatalogManager 中删除表
   dberr_t res = catalog_manager->DropTable(table_name);
 
@@ -631,126 +634,131 @@ dberr_t ExecuteEngine::ExecuteDropTable(pSyntaxNode ast, ExecuteContext *context
 }
 
 /**
- * TODO: Student Implement - Done
+ * TODO: Student Implement
  */
 dberr_t ExecuteEngine::ExecuteShowIndexes(pSyntaxNode ast, ExecuteContext *context) {
 #ifdef ENABLE_EXECUTE_DEBUG
   LOG(INFO) << "ExecuteShowIndexes" << std::endl;
 #endif
-  // 检查是否有选中的数据库
+  
+  // 验证执行上下文和数据库选择状态
   if (context == nullptr || current_db_.empty()) {
     std::cout << "No database selected." << std::endl;
     return DB_FAILED;
   }
+  
   CatalogManager *catalog_manager = context->GetCatalog();
   if (catalog_manager == nullptr) {
     LOG(ERROR) << "Critical error: CatalogManager is null in ExecuteContext for database " << current_db_;
     return DB_FAILED;
   }
 
-  // 获取数据库中的所有表
-  std::vector<TableInfo *> tables_in_db;
-  dberr_t res_gettables = catalog_manager->GetTables(tables_in_db);
+  // 获取当前数据库中的所有表
+  std::vector<TableInfo *> all_tables;
+  dberr_t get_tables_result = catalog_manager->GetTables(all_tables);
 
-  if (res_gettables != DB_SUCCESS) {
-    if (res_gettables == DB_TABLE_NOT_EXIST) {
+  if (get_tables_result != DB_SUCCESS) {
+    if (get_tables_result == DB_TABLE_NOT_EXIST) {
       std::cout << "No index exists in database '" << current_db_ << "' (no tables found)." << std::endl;
-      return DB_SUCCESS; // "SHOW INDEXES" 命令本身是成功的，只是结果为空
+      return DB_SUCCESS;
     }
-    ExecuteInformation(res_gettables);
-    return res_gettables;
+    ExecuteInformation(get_tables_result);
+    return get_tables_result;
   }
 
-  // 初始化变量
-  bool any_index_found_in_db = false;
-  std::stringstream ss; // 用于 ResultWriter
-  ResultWriter writer(ss); // 默认 disable_header = false, separator = "|"
-  bool first_table_block_printed = true; // 用于控制不同表索引列表之间的前导空行
+  // 用于跟踪是否找到任何索引和控制输出格式
+  bool found_any_index = false;
+  std::stringstream output_stream;
+  ResultWriter result_writer(output_stream);
+  bool is_first_table_output = true;
 
-  // 遍历所有表
-  for (TableInfo *table_info : tables_in_db) {
-    if (table_info == nullptr) {
-        LOG(WARNING) << "Encountered a null TableInfo pointer while iterating tables in ExecuteShowIndexes.";
-        continue;
+  // 遍历数据库中的每个表
+  for (TableInfo *table_info_ptr : all_tables) {
+    if (table_info_ptr == nullptr) {
+      LOG(WARNING) << "Encountered null TableInfo pointer during table iteration in ExecuteShowIndexes.";
+      continue;
     }
 
-    std::string current_table_name = table_info->GetTableName();
-    std::vector<IndexInfo *> indexes_on_this_table;
+    std::string table_name = table_info_ptr->GetTableName();
+    std::vector<IndexInfo *> table_indexes;
 
-    // 获取当前表的索引
-    dberr_t res_getindexes = catalog_manager->GetTableIndexes(current_table_name, indexes_on_this_table);
+    // 获取当前表的所有索引
+    dberr_t get_indexes_result = catalog_manager->GetTableIndexes(table_name, table_indexes);
 
-    if (res_getindexes != DB_SUCCESS && res_getindexes != DB_INDEX_NOT_FOUND) {
-      ExecuteInformation(res_getindexes);
-      return res_getindexes;
+    if (get_indexes_result != DB_SUCCESS && get_indexes_result != DB_INDEX_NOT_FOUND) {
+      ExecuteInformation(get_indexes_result);
+      return get_indexes_result;
     }
 
-    if (indexes_on_this_table.empty()) {
-      continue; // 此表没有索引，跳到下一个表
+    // 如果当前表没有索引，跳过
+    if (table_indexes.empty()) {
+      continue;
     }
 
-    any_index_found_in_db = true;
+    found_any_index = true;
 
-    // 如果这不是第一个输出索引列表的表，则在前面加一个空行以增加可读性
-    if (!first_table_block_printed) {
-        ss << std::endl; // 直接向 stringstream 写入换行符
+    // 在多个表的索引列表之间添加空行分隔
+    if (!is_first_table_output) {
+      output_stream << std::endl;
     }
-    first_table_block_printed = false;
+    is_first_table_output = false;
 
-    // 计算此表索引名称和表头的最大宽度
-    std::string header_for_this_table = "Indexes_in_" + current_table_name;
-    int max_width_for_this_table = header_for_this_table.length(); // ResultWriter 的 width 参数是 int
-    for (IndexInfo *index_info_ptr : indexes_on_this_table) {
+    // 计算当前表索引显示所需的列宽
+    std::string table_header = "Indexes_in_" + table_name;
+    int column_width = static_cast<int>(table_header.length());
+    
+    for (IndexInfo *index_info_ptr : table_indexes) {
       if (index_info_ptr != nullptr) {
-        max_width_for_this_table = std::max(max_width_for_this_table, (int)index_info_ptr->GetIndexName().length());
+        column_width = std::max(column_width, static_cast<int>(index_info_ptr->GetIndexName().length()));
       }
     }
-    // 确保列宽至少能容纳 "Index" 
-    max_width_for_this_table = std::max(max_width_for_this_table, (int)std::string("Index").length());
-    std::vector<int> col_widths = {max_width_for_this_table};
+    
+    // 确保列宽足够显示基本标题
+    column_width = std::max(column_width, static_cast<int>(std::string("Index").length()));
+    std::vector<int> column_widths = {column_width};
 
-    // 输出当前表的索引列表的表头
-    writer.Divider(col_widths);
-    writer.BeginRow();
-    writer.WriteHeaderCell(header_for_this_table, max_width_for_this_table);
-    writer.EndRow();
-    writer.Divider(col_widths);
+    // 输出当前表的索引列表表头
+    result_writer.Divider(column_widths);
+    result_writer.BeginRow();
+    result_writer.WriteHeaderCell(table_header, column_width);
+    result_writer.EndRow();
+    result_writer.Divider(column_widths);
 
-    // 输出当前表的每个索引的名称
-    for (IndexInfo *index_info_ptr : indexes_on_this_table) {
+    // 输出当前表的每个索引名称
+    for (IndexInfo *index_info_ptr : table_indexes) {
       if (index_info_ptr != nullptr) {
-        writer.BeginRow();
-        writer.WriteCell(index_info_ptr->GetIndexName(), max_width_for_this_table);
-        writer.EndRow();
+        result_writer.BeginRow();
+        result_writer.WriteCell(index_info_ptr->GetIndexName(), column_width);
+        result_writer.EndRow();
       }
     }
-    writer.Divider(col_widths);
+    result_writer.Divider(column_widths);
   }
 
-  // 输出结果 (如果找到了任何索引)
-  if (any_index_found_in_db) {
-      std::cout << ss.str();
-  }
-
-  // 如果没有任何索引，输出提示信息
-  if (!any_index_found_in_db) {
+  // 根据是否找到索引输出相应结果
+  if (found_any_index) {
+    std::cout << output_stream.str();
+  } else {
     std::cout << "No index exists in database '" << current_db_ << "'." << std::endl;
   }
+  
   return DB_SUCCESS;
 }
 
 /**
- * TODO: Student Implement - Done
+ * TODO: Student Implement
  */
 dberr_t ExecuteEngine::ExecuteCreateIndex(pSyntaxNode ast, ExecuteContext *context) {
 #ifdef ENABLE_EXECUTE_DEBUG
   LOG(INFO) << "ExecuteCreateIndex" << std::endl;
 #endif
-  // 检查数据库和上下文
+  
+  // 验证执行上下文和数据库状态
   if (context == nullptr || current_db_.empty()) {
     std::cout << "No database selected." << std::endl;
     return DB_FAILED;
   }
+  
   CatalogManager *catalog_manager = context->GetCatalog();
   if (catalog_manager == nullptr) {
     LOG(ERROR) << "Critical error: CatalogManager is null in ExecuteContext for database " << current_db_;
@@ -758,7 +766,7 @@ dberr_t ExecuteEngine::ExecuteCreateIndex(pSyntaxNode ast, ExecuteContext *conte
   }
   Txn *txn = context->GetTransaction();
 
-  // 从 AST 中获取索引名、表名和列名
+  // 解析 AST 获取索引名称
   if (ast == nullptr || ast->type_ != kNodeCreateIndex || ast->child_ == nullptr ||
       ast->child_->type_ != kNodeIdentifier || ast->child_->val_ == nullptr) {
     LOG(ERROR) << "Syntax error: Invalid AST for CREATE INDEX (missing index name).";
@@ -766,6 +774,7 @@ dberr_t ExecuteEngine::ExecuteCreateIndex(pSyntaxNode ast, ExecuteContext *conte
   }
   std::string index_name(ast->child_->val_);
 
+  // 解析表名
   pSyntaxNode table_name_node = ast->child_->next_;
   if (table_name_node == nullptr || table_name_node->type_ != kNodeIdentifier || table_name_node->val_ == nullptr) {
     LOG(ERROR) << "Syntax error: Invalid AST for CREATE INDEX (missing table name for index '" << index_name << "').";
@@ -773,203 +782,211 @@ dberr_t ExecuteEngine::ExecuteCreateIndex(pSyntaxNode ast, ExecuteContext *conte
   }
   std::string table_name(table_name_node->val_);
 
+  // 解析列名列表
   pSyntaxNode column_list_node = table_name_node->next_;
   if (column_list_node == nullptr || column_list_node->type_ != kNodeColumnList || column_list_node->child_ == nullptr) {
     LOG(ERROR) << "Syntax error: Invalid AST for CREATE INDEX (missing column list for index keys on index '" << index_name << "').";
     return DB_FAILED;
   }
-  std::vector<std::string> index_key_column_names_from_ast; // 用于传递给 CatalogManager
-  pSyntaxNode current_col_node = column_list_node->child_;
-  while (current_col_node != nullptr) {
-    if (current_col_node->type_ != kNodeIdentifier || current_col_node->val_ == nullptr) {
+  
+  std::vector<std::string> index_column_names;
+  pSyntaxNode current_column_node = column_list_node->child_;
+  while (current_column_node != nullptr) {
+    if (current_column_node->type_ != kNodeIdentifier || current_column_node->val_ == nullptr) {
       LOG(ERROR) << "Syntax error: Expected column name in index key list for index '" << index_name << "'.";
       return DB_FAILED;
     }
-    index_key_column_names_from_ast.push_back(std::string(current_col_node->val_));
-    current_col_node = current_col_node->next_;
+    index_column_names.push_back(std::string(current_column_node->val_));
+    current_column_node = current_column_node->next_;
   }
-  if (index_key_column_names_from_ast.empty()) {
-      LOG(ERROR) << "Syntax error: No columns specified for index '" << index_name << "'.";
-      return DB_FAILED;
+  
+  if (index_column_names.empty()) {
+    LOG(ERROR) << "Syntax error: No columns specified for index '" << index_name << "'.";
+    return DB_FAILED;
   }
 
-  // 处理索引类型
-  std::string parsed_index_type = "bptree";
-  pSyntaxNode index_type_node_outer = column_list_node->next_;
-  if (index_type_node_outer != nullptr && index_type_node_outer->type_ == kNodeIndexType) {
-    if (index_type_node_outer->child_ != nullptr && index_type_node_outer->child_->type_ == kNodeIdentifier &&
-        index_type_node_outer->child_->val_ != nullptr) {
-      parsed_index_type = index_type_node_outer->child_->val_;
+  // 解析索引类型（如果有）（其实基本没有区别都是bptree）
+  std::string index_type = "bptree";
+  pSyntaxNode index_type_node = column_list_node->next_;
+  if (index_type_node != nullptr && index_type_node->type_ == kNodeIndexType) {
+    if (index_type_node->child_ != nullptr && index_type_node->child_->type_ == kNodeIdentifier &&
+        index_type_node->child_->val_ != nullptr) {
+      index_type = index_type_node->child_->val_;
     }
   }
 
-  // 获取表信息
-  TableInfo *table_info_ptr = nullptr;
-  dberr_t get_table_res = catalog_manager->GetTable(table_name, table_info_ptr);
-  if (get_table_res != DB_SUCCESS) {
-    ExecuteInformation(get_table_res);
-    return get_table_res;
+  // 验证表的存在性并获取表信息
+  TableInfo *table_info = nullptr;
+  dberr_t get_table_result = catalog_manager->GetTable(table_name, table_info);
+  if (get_table_result != DB_SUCCESS) {
+    ExecuteInformation(get_table_result);
+    return get_table_result;
   }
-  ASSERT(table_info_ptr != nullptr, "GetTable succeeded but table_info_ptr is null.");
+  ASSERT(table_info != nullptr, "GetTable succeeded but table_info is null.");
 
-
-  std::vector<uint32_t> key_map_for_population;
-  key_map_for_population.reserve(index_key_column_names_from_ast.size());
-  TableSchema *table_schema = table_info_ptr->GetSchema();
+  // 验证列的存在性并构建列索引映射
+  std::vector<uint32_t> column_index_mapping;
+  column_index_mapping.reserve(index_column_names.size());
+  TableSchema *table_schema = table_info->GetSchema();
   if (table_schema == nullptr) {
-      LOG(ERROR) << "Table " << table_name << " has no schema. Cannot create index.";
-      return DB_FAILED;
+    LOG(ERROR) << "Table " << table_name << " has no schema. Cannot create index.";
+    return DB_FAILED;
   }
-  for (const std::string &key_col_name : index_key_column_names_from_ast) {
-    uint32_t column_index_in_table;
-    if (table_schema->GetColumnIndex(key_col_name, column_index_in_table) != DB_SUCCESS) {
-      LOG(ERROR) << "Column '" << key_col_name << "' not found in table '" << table_name 
+  
+  for (const std::string &column_name : index_column_names) {
+    uint32_t column_index;
+    if (table_schema->GetColumnIndex(column_name, column_index) != DB_SUCCESS) {
+      LOG(ERROR) << "Column '" << column_name << "' not found in table '" << table_name 
                  << "' for index '" << index_name << "'.";
       ExecuteInformation(DB_COLUMN_NAME_NOT_EXIST);
       return DB_COLUMN_NAME_NOT_EXIST;
     }
-    key_map_for_population.push_back(column_index_in_table);
+    column_index_mapping.push_back(column_index);
   }
 
-  // 在 CatalogManager 中创建索引
-  // CatalogManager::CreateIndex 接收的是 index_key_column_names_from_ast (字符串列表)
-  IndexInfo *catalog_created_index_info = nullptr;
-  dberr_t cat_create_idx_res = catalog_manager->CreateIndex(
-      table_name, index_name, index_key_column_names_from_ast, txn, catalog_created_index_info, parsed_index_type);
+  // 在CatalogManager中创建索引
+  IndexInfo *created_index_info = nullptr;
+  dberr_t create_index_result = catalog_manager->CreateIndex(
+      table_name, index_name, index_column_names, txn, created_index_info, index_type);
 
-  if (cat_create_idx_res != DB_SUCCESS) {
-    ExecuteInformation(cat_create_idx_res);
-    return cat_create_idx_res;
+  if (create_index_result != DB_SUCCESS) {
+    ExecuteInformation(create_index_result);
+    return create_index_result;
   }
-  ASSERT(catalog_created_index_info != nullptr, "CatalogManager::CreateIndex succeeded but output IndexInfo is null.");
+  ASSERT(created_index_info != nullptr, "CatalogManager::CreateIndex succeeded but output IndexInfo is null.");
 
-  // 将表中的现有记录插入到新创建的索引中
-  TableHeap *table_heap = table_info_ptr->GetTableHeap();
+  // 获取表堆用于遍历现有数据
+  TableHeap *table_heap = table_info->GetTableHeap();
   if (table_heap == nullptr) {
     LOG(ERROR) << "Failed to get TableHeap for table '" << table_name << "' while populating index '" << index_name << "'.";
     catalog_manager->DropIndex(table_name, index_name);
     return DB_FAILED;
   }
 
-  Index *actual_index_structure = catalog_created_index_info->GetIndex();
-  if (actual_index_structure == nullptr) {
-      LOG(ERROR) << "Newly created IndexInfo (from CatalogManager) for index '" << index_name << "' does not have an initialized index structure.";
-      catalog_manager->DropIndex(table_name, index_name);
-      return DB_FAILED;
+  // 获取索引结构用于插入数据
+  Index *index_structure = created_index_info->GetIndex();
+  if (index_structure == nullptr) {
+    LOG(ERROR) << "Newly created IndexInfo for index '" << index_name << "' does not have an initialized index structure.";
+    catalog_manager->DropIndex(table_name, index_name);
+    return DB_FAILED;
   }
-  // IndexSchema *index_key_actual_schema = catalog_created_index_info->GetIndexKeySchema();
-  // ASSERT(index_key_actual_schema != nullptr, "Index key schema is null in created IndexInfo.");
 
-  for (TableIterator it = table_heap->Begin(txn); it != table_heap->End(); ++it) {
-    Row table_row(it->GetRowId());
-    if (!table_heap->GetTuple(&table_row, txn)) {
-        LOG(WARNING) << "Failed to get tuple for rowid (Page: " << it->GetRowId().GetPageId() 
-                     << ", Slot: " << it->GetRowId().GetSlotNum() << ") during index population for " << index_name;
-        continue; 
+  // 遍历表中现有记录并插入到索引中
+  for (TableIterator table_iter = table_heap->Begin(txn); table_iter != table_heap->End(); ++table_iter) {
+    Row current_row(table_iter->GetRowId());
+    if (!table_heap->GetTuple(&current_row, txn)) {
+      LOG(WARNING) << "Failed to get tuple for rowid (Page: " << table_iter->GetRowId().GetPageId() 
+                   << ", Slot: " << table_iter->GetRowId().GetSlotNum() << ") during index population for " << index_name;
+      continue; 
     }
     
-    RowId original_row_id = table_row.GetRowId();
+    RowId row_id = current_row.GetRowId();
 
-    // 从表行中提取索引键字段，构建索引行 (row_idx)
+    // 构建索引键行
     std::vector<Field> index_key_fields;
-    index_key_fields.reserve(key_map_for_population.size());
-    for (uint32_t table_column_idx_from_key_map : key_map_for_population) {
-        // 从 table_row (基于原始表 schema) 中获取第 table_column_idx_from_key_map 个字段
-        index_key_fields.push_back(*(table_row.GetField(table_column_idx_from_key_map))); 
+    index_key_fields.reserve(column_index_mapping.size());
+    for (uint32_t column_index : column_index_mapping) {
+      index_key_fields.push_back(*(current_row.GetField(column_index))); 
     }
-    Row index_key_row(index_key_fields); // 创建索引键行
+    Row index_key_row(index_key_fields);
 
-    // 将条目插入物理索引结构
-    if (actual_index_structure->InsertEntry(index_key_row, original_row_id, txn) != DB_SUCCESS) {
+    // 将记录插入索引
+    if (index_structure->InsertEntry(index_key_row, row_id, txn) != DB_SUCCESS) {
       LOG(ERROR) << "Failed to insert entry into index '" << index_name << "' for rowid (Page: " 
-                 << original_row_id.GetPageId() << ", Slot: " << original_row_id.GetSlotNum()
+                 << row_id.GetPageId() << ", Slot: " << row_id.GetSlotNum()
                  << ") during initial population.";
-      catalog_manager->DropIndex(table_name, index_name); // 尝试删除已部分创建的索引
+      catalog_manager->DropIndex(table_name, index_name);
       return DB_FAILED;
     }
   }
+  
   std::cout << "Index [" << index_name << "] created successfully on table [" << table_name << "]." << std::endl;
   return DB_SUCCESS;
 }
 
 /**
- * TODO: Student Implement - Done
+ * TODO: Student Implement
  */
 dberr_t ExecuteEngine::ExecuteDropIndex(pSyntaxNode ast, ExecuteContext *context) {
 #ifdef ENABLE_EXECUTE_DEBUG
   LOG(INFO) << "ExecuteDropIndex" << std::endl;
 #endif
-  // 检查是否有选中的数据库
+  
+  // 验证执行上下文和数据库状态
   if (context == nullptr || current_db_.empty()) {
     std::cout << "No database selected." << std::endl;
     return DB_FAILED;
   }
+  
   CatalogManager *catalog_manager = context->GetCatalog();
   if (catalog_manager == nullptr) {
     LOG(ERROR) << "Critical error: CatalogManager is null in ExecuteContext for database " << current_db_;
     return DB_FAILED;
   }
 
-  // 从 AST 中获取索引名
+  // 解析 AST 获取要删除的索引名称
   if (ast == nullptr || ast->type_ != kNodeDropIndex || ast->child_ == nullptr ||
       ast->child_->type_ != kNodeIdentifier || ast->child_->val_ == nullptr) {
     LOG(ERROR) << "Syntax error: Invalid AST structure for DROP INDEX statement (missing index name).";
     return DB_FAILED;
   }
-  std::string index_name_to_drop(ast->child_->val_);
-  if (index_name_to_drop.empty()) {
-      LOG(ERROR) << "Syntax error: Index name for DROP INDEX cannot be empty.";
-      return DB_FAILED;
+  
+  std::string target_index_name(ast->child_->val_);
+  if (target_index_name.empty()) {
+    LOG(ERROR) << "Syntax error: Index name for DROP INDEX cannot be empty.";
+    return DB_FAILED;
   }
-
 
   // 获取数据库中的所有表
-  std::vector<TableInfo *> tables_in_db;
-  dberr_t get_tables_res = catalog_manager->GetTables(tables_in_db);
-  if (get_tables_res != DB_SUCCESS) {
-      if (get_tables_res == DB_TABLE_NOT_EXIST) { // 库中没有表，自然没有索引
-          ExecuteInformation(DB_INDEX_NOT_FOUND);
-          return DB_INDEX_NOT_FOUND;
-      }
-      ExecuteInformation(get_tables_res); // 其他获取表列表的错误
-      return get_tables_res;
+  std::vector<TableInfo *> database_tables;
+  dberr_t get_tables_result = catalog_manager->GetTables(database_tables);
+  if (get_tables_result != DB_SUCCESS) {
+    if (get_tables_result == DB_TABLE_NOT_EXIST) {
+      ExecuteInformation(DB_INDEX_NOT_FOUND);
+      return DB_INDEX_NOT_FOUND;
+    }
+    ExecuteInformation(get_tables_result);
+    return get_tables_result;
   }
 
-  // 遍历所有表
-  for (TableInfo *table_info : tables_in_db) {
-    if (table_info == nullptr) continue;
+  // 遍历所有表查找目标索引
+  for (TableInfo *table_info_ptr : database_tables) {
+    if (table_info_ptr == nullptr) {
+      continue;
+    }
 
-    std::string current_table_name = table_info->GetTableName();
-    std::vector<IndexInfo *> indexes_on_this_table;
+    std::string current_table_name = table_info_ptr->GetTableName();
+    std::vector<IndexInfo *> table_index_list;
 
     // 获取当前表的所有索引
-    dberr_t get_indexes_res = catalog_manager->GetTableIndexes(current_table_name, indexes_on_this_table);
+    dberr_t get_table_indexes_result = catalog_manager->GetTableIndexes(current_table_name, table_index_list);
     
-    if (get_indexes_res == DB_SUCCESS) { // 只有当成功获取到索引列表（即使为空）才继续
-        // 遍历该表的所有索引
-        for (IndexInfo *index_info_ptr : indexes_on_this_table) {
-            if (index_info_ptr == nullptr) continue;
-
-            // if index name matches
-            if (index_info_ptr->GetIndexName() == index_name_to_drop) {
-                // drop index from catalog manager
-                dberr_t drop_res = catalog_manager->DropIndex(current_table_name, index_name_to_drop);
-                if (drop_res != DB_SUCCESS) {
-                    ExecuteInformation(drop_res);
-                    return drop_res;
-                }
-                std::cout << "Index [" << index_name_to_drop << "] dropped successfully from table [" << current_table_name << "]." << std::endl;
-                return DB_SUCCESS;
-            }
+    if (get_table_indexes_result == DB_SUCCESS) {
+      // 在当前表的索引中查找目标索引
+      for (IndexInfo *index_info_ptr : table_index_list) {
+        if (index_info_ptr == nullptr) {
+          continue;
         }
-    } else if (get_indexes_res != DB_INDEX_NOT_FOUND) {
-        LOG(ERROR) << "Error fetching indexes for table " << current_table_name << " during DROP INDEX operation.";
-        ExecuteInformation(get_indexes_res);
-        return get_indexes_res;
+
+        if (index_info_ptr->GetIndexName() == target_index_name) {
+          // 找到目标索引，执行删除操作
+          dberr_t drop_index_result = catalog_manager->DropIndex(current_table_name, target_index_name);
+          if (drop_index_result != DB_SUCCESS) {
+            ExecuteInformation(drop_index_result);
+            return drop_index_result;
+          }
+          std::cout << "Index [" << target_index_name << "] dropped successfully from table [" << current_table_name << "]." << std::endl;
+          return DB_SUCCESS;
+        }
+      }
+    } else if (get_table_indexes_result != DB_INDEX_NOT_FOUND) {
+      LOG(ERROR) << "Error fetching indexes for table " << current_table_name << " during DROP INDEX operation.";
+      ExecuteInformation(get_table_indexes_result);
+      return get_table_indexes_result;
     }
-    // 如果 GetTableIndexes 返回 DB_INDEX_NOT_FOUND，则此表没有索引，继续检查下一个表。
   }
-  // 如果遍历完所有表的所有索引都没有找到匹配的索引
+  
+  // 如果遍历完所有表都没有找到目标索引
   ExecuteInformation(DB_INDEX_NOT_FOUND);
   return DB_INDEX_NOT_FOUND;
 }
@@ -1002,8 +1019,8 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
 #ifdef ENABLE_EXECUTE_DEBUG
   LOG(INFO) << "ExecuteExecfile" << std::endl;
 #endif
-  // 从 AST 中获取文件名
-  // AST 结构: kNodeExecFile -> child_ (kNodeString 或 kNodeIdentifier: filename)
+  
+  // 解析 AST 获取文件名
   if (ast == nullptr || ast->type_ != kNodeExecFile || ast->child_ == nullptr ||
       (ast->child_->type_ != kNodeString && ast->child_->type_ != kNodeIdentifier) ||
       ast->child_->val_ == nullptr) {
@@ -1011,109 +1028,113 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
     ExecuteInformation(DB_FAILED);
     return DB_FAILED;
   }
-  std::string file_name(ast->child_->val_);
-  if (file_name.empty()) {
+  
+  std::string script_filename(ast->child_->val_);
+  if (script_filename.empty()) {
     LOG(ERROR) << "Syntax error: Filename for EXECFILE cannot be empty.";
     ExecuteInformation(DB_FAILED);
     return DB_FAILED;
   }
 
-  // 打开 SQL 脚本文件
-  std::ifstream sql_script_file(file_name);
-  if (!sql_script_file.is_open()) {
-    LOG(ERROR) << "Cannot open file '" << file_name << "' for EXECFILE.";
-    std::cout << "Error: Cannot open SQL script file '" << file_name << "'." << std::endl;
+  // 打开并验证 SQL 脚本文件
+  std::ifstream script_file(script_filename);
+  if (!script_file.is_open()) {
+    LOG(ERROR) << "Cannot open file '" << script_filename << "' for EXECFILE.";
+    std::cout << "Error: Cannot open SQL script file '" << script_filename << "'." << std::endl;
     return DB_FAILED;
   }
 
-  std::cout << "Executing SQL script file [" << file_name << "] ..." << std::endl;
-  std::string current_statement_buffer;
-  char ch;
-  dberr_t overall_status = DB_SUCCESS;
-  int line_count_for_error_reporting = 0;
+  std::cout << "Executing SQL script file [" << script_filename << "] ..." << std::endl;
+  
+  // 初始化执行状态变量
+  std::string statement_buffer;
+  char current_char;
+  dberr_t execution_status = DB_SUCCESS;
+  int current_line_number = 0;
 
-  // 逐条读取、解析和执行SQL语句
-  while (sql_script_file.get(ch)) {
-    current_statement_buffer += ch;
-    if (ch == '\n') {
-        line_count_for_error_reporting++;
+  // 逐字符读取和处理文件内容
+  while (script_file.get(current_char)) {
+    statement_buffer += current_char;
+    if (current_char == '\n') {
+      current_line_number++;
     }
 
-    if (ch == ';') {
+    if (current_char == ';') {
+      // 清理语句字符串的首尾空白字符
+      statement_buffer.erase(0, statement_buffer.find_first_not_of(" \t\n\r\f\v"));
+      statement_buffer.erase(statement_buffer.find_last_not_of(" \t\n\r\f\v") + 1);
 
-      current_statement_buffer.erase(0, current_statement_buffer.find_first_not_of(" \t\n\r\f\v"));
-      current_statement_buffer.erase(current_statement_buffer.find_last_not_of(" \t\n\r\f\v") + 1);
-
-
-      if (current_statement_buffer.empty() || current_statement_buffer == ";") {
-        current_statement_buffer.clear();
-        continue; // 跳过空语句
+      if (statement_buffer.empty() || statement_buffer == ";") {
+        statement_buffer.clear();
+        continue;
       }
 
-      MinisqlParserInit(); // 初始化解析器状态
-
-      YY_BUFFER_STATE flex_buffer = yy_scan_string(current_statement_buffer.c_str());
-      if (flex_buffer == nullptr) {
-          LOG(ERROR) << "Failed to create Flex buffer for SQL statement: " << current_statement_buffer;
-          overall_status = DB_FAILED;
-          MinisqlParserFinish(); // 清理
-          break; 
-      }
-      
-      int parse_result = yyparse(); // 调用 Bison 解析器
-      yy_delete_buffer(flex_buffer); // 删除为当前语句创建的 Flex 缓冲区
-
-      pSyntaxNode single_statement_ast = MinisqlGetParserRootNode();
-
-      if (parse_result != 0 || single_statement_ast == nullptr || MinisqlParserGetError() != 0) {
-        LOG(ERROR) << "Syntax error in file '" << file_name << "' (around line " << line_count_for_error_reporting 
-                   << ") for statement: " << current_statement_buffer;
-        if (MinisqlParserGetError() != 0 && MinisqlParserGetErrorMessage() != nullptr) {
-            std::cout << "Error (approx. line " << line_count_for_error_reporting << "): " << MinisqlParserGetErrorMessage() << std::endl;
-        } else {
-            std::cout << "Error in file [" << file_name << "] (around line " << line_count_for_error_reporting << "): Syntax error in statement." << std::endl;
-        }
-        overall_status = DB_FAILED;
-        DestroySyntaxTree();      // 清理可能产生的AST
-        MinisqlParserFinish();    // 清理状态
-        break; // 中止整个脚本的执行
-      }
-
-      // 递归调用 ExecuteEngine::Execute() 来执行解析出的单条语句
-      // Execute() 函数会自己处理 Planner 和 Executor 的创建和调用
-      // 它也会自己根据 current_db_ 创建 ExecuteContext
-      dberr_t stmt_exec_result = Execute(single_statement_ast);
-      
-      DestroySyntaxTree(); // 清理为这条语句解析生成的AST
-      MinisqlParserFinish();   // 清理状态
-
-      if (stmt_exec_result == DB_QUIT) {
-        overall_status = DB_QUIT;
-        std::cout << "QUIT command encountered in script. Halting script execution." << std::endl;
-        break; // 脚本中的QUIT会中止脚本执行
-      }
-      if (stmt_exec_result != DB_SUCCESS) {
-        LOG(WARNING) << "Error executing statement from file '" << file_name << "' (around line " << line_count_for_error_reporting
-                     << "): " << current_statement_buffer;
-        overall_status = stmt_exec_result;
+      // 初始化解析器并创建词法分析缓冲区
+      MinisqlParserInit();
+      YY_BUFFER_STATE lexer_buffer = yy_scan_string(statement_buffer.c_str());
+      if (lexer_buffer == nullptr) {
+        LOG(ERROR) << "Failed to create Flex buffer for SQL statement: " << statement_buffer;
+        execution_status = DB_FAILED;
+        MinisqlParserFinish();
         break;
       }
-      current_statement_buffer.clear(); // 为下一条语句清空缓冲区
+      
+      // 执行语法分析
+      int parsing_result = yyparse();
+      yy_delete_buffer(lexer_buffer);
+      pSyntaxNode statement_ast = MinisqlGetParserRootNode();
+
+      if (parsing_result != 0 || statement_ast == nullptr || MinisqlParserGetError() != 0) {
+        LOG(ERROR) << "Syntax error in file '" << script_filename << "' (around line " << current_line_number 
+                   << ") for statement: " << statement_buffer;
+        if (MinisqlParserGetError() != 0 && MinisqlParserGetErrorMessage() != nullptr) {
+          std::cout << "Error (approx. line " << current_line_number << "): " << MinisqlParserGetErrorMessage() << std::endl;
+        } else {
+          std::cout << "Error in file [" << script_filename << "] (around line " << current_line_number << "): Syntax error in statement." << std::endl;
+        }
+        execution_status = DB_FAILED;
+        DestroySyntaxTree();
+        MinisqlParserFinish();
+        break;
+      }
+
+      // 执行解析得到的 SQL 语句
+      dberr_t statement_execution_result = Execute(statement_ast);
+      
+      DestroySyntaxTree();
+      MinisqlParserFinish();
+
+      if (statement_execution_result == DB_QUIT) {
+        execution_status = DB_QUIT;
+        std::cout << "QUIT command encountered in script. Halting script execution." << std::endl;
+        break;
+      }
+      
+      if (statement_execution_result != DB_SUCCESS) {
+        LOG(WARNING) << "Error executing statement from file '" << script_filename << "' (around line " << current_line_number
+                     << "): " << statement_buffer;
+        execution_status = statement_execution_result;
+        break;
+      }
+      
+      statement_buffer.clear();
     }
   }
 
-  sql_script_file.close();
+  script_file.close();
 
-  if (overall_status == DB_SUCCESS) {
-      std::cout << "SQL script file [" << file_name << "] executed successfully." << std::endl;
-  } else if (overall_status != DB_QUIT) {
-      std::cout << "Execution of SQL script file [" << file_name << "] encountered errors." << std::endl;
+  // 输出执行结果摘要
+  if (execution_status == DB_SUCCESS) {
+    std::cout << "SQL script file [" << script_filename << "] executed successfully." << std::endl;
+  } else if (execution_status != DB_QUIT) {
+    std::cout << "Execution of SQL script file [" << script_filename << "] encountered errors." << std::endl;
   }
+  
   return DB_SUCCESS;
 }
 
 /**
- * TODO: Student Implement - Done
+ * TODO: Student Implement
  */
 dberr_t ExecuteEngine::ExecuteQuit(pSyntaxNode ast, ExecuteContext *context) {
 #ifdef ENABLE_EXECUTE_DEBUG
