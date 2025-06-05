@@ -30,9 +30,6 @@ ExecuteEngine::ExecuteEngine() {
     mkdir("./databases", 0777);
     dir = opendir(path);
   }
-  /** When you have completed all the code for
-   *  the test, run it using main.cpp and uncomment
-   *  this part of the code.
   struct dirent *stdir;
   while((stdir = readdir(dir)) != nullptr) {
     if( strcmp( stdir->d_name , "." ) == 0 ||
@@ -41,7 +38,7 @@ ExecuteEngine::ExecuteEngine() {
       continue;
     dbs_[stdir->d_name] = new DBStorageEngine(stdir->d_name, false);
   }
-   **/
+  
   closedir(dir);
 }
 
@@ -380,7 +377,7 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
     LOG(ERROR) << "Syntax error: Table name for CREATE TABLE cannot be empty.";
     return DB_FAILED;
   }
-
+  //LOG(WARNING)<<"flag1"<<std::endl;
   // 初始化变量解析
   std::vector<ParsedColumnInfo> parsed_col_definitions;
   std::vector<std::string> parsed_column_list_from_ast;
@@ -393,11 +390,14 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
   }
 
   pSyntaxNode current_item_node = col_def_list_node->child_;
-  pSyntaxNode col_name_node = current_item_node->child_;
+  
 
   while (current_item_node != nullptr) {
-    ParsedColumnInfo parsed_col_info;
+    //LOG(WARNING)<<"flag2"<<std::endl;
+    
     if (current_item_node->type_ == kNodeColumnDefinition) {
+      ParsedColumnInfo parsed_col_info;
+      pSyntaxNode col_name_node = current_item_node->child_;
       if (col_name_node == nullptr || col_name_node->type_ != kNodeIdentifier || col_name_node->val_ == nullptr) {
         LOG(ERROR) << "Syntax error: Column name missing in column definition.";
         return DB_FAILED;
@@ -413,20 +413,23 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
 
     std::string col_type_str(col_type_node->val_);
     std::transform(col_type_str.begin(), col_type_str.end(), col_type_str.begin(), ::tolower);
+    //LOG(WARNING)<<"flag3 & col_type_str: "<<col_type_str<<std::endl;
     if (col_type_str == "int") {
       parsed_col_info.type_id = TypeId::kTypeInt;
-      
+      //LOG(WARNING)<<"flag_int"<<std::endl;
     } else if (col_type_str == "float") {
       parsed_col_info.type_id = TypeId::kTypeFloat;
-      
+      //LOG(WARNING)<<"flag_float"<<std::endl;
     } else if (col_type_str == "char") {
+      //LOG(WARNING)<<"col_type_str is char, parsing length";
       parsed_col_info.type_id = TypeId::kTypeChar;
-      pSyntaxNode col_length_node = col_type_node->next_;
+      pSyntaxNode col_length_node = col_type_node->child_;
       if (col_length_node == nullptr || col_length_node->type_ != kNodeNumber) {
         LOG(ERROR) << "Syntax error: CHAR Length missing for CHAR type in column '" << parsed_col_info.column_name << "'.";
         return DB_FAILED;
       }
       std::string char_len_str(col_length_node->val_);
+      //LOG(WARNING)<<"flag_char_len_str: "<<char_len_str<<std::endl;
       if(char_len_str.empty()) {
         LOG(ERROR) << "Syntax error: CHAR Length cannot be empty for column '" << parsed_col_info.column_name << "'.";
         return DB_FAILED;
@@ -451,6 +454,10 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
           return DB_FAILED;
         } catch (const std::out_of_range &oor) {
           LOG(ERROR) << "Syntax error: Length for CHAR column '" << parsed_col_info.column_name << "' is out of range for unsigned long ('" << char_len_str << "').";
+          return DB_FAILED;
+        }
+        if (parsed_col_info.len_for_char == 0) {
+          LOG(ERROR) << "Invalid length " << parsed_col_info.len_for_char << " for CHAR column '" << parsed_col_info.column_name<< "'. Must be a positive integer greater than 0";
           return DB_FAILED;
         }
     } else {
@@ -613,7 +620,6 @@ dberr_t ExecuteEngine::ExecuteDropTable(pSyntaxNode ast, ExecuteContext *context
       LOG(ERROR) << "Syntax error: Table name for DROP TABLE cannot be empty.";
       return DB_FAILED;
   }
-
   // 尝试在 CatalogManager 中删除表
   dberr_t res = catalog_manager->DropTable(table_name);
 
