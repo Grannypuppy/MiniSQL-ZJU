@@ -44,6 +44,7 @@
 
 
 
+
 <font size = 8> Contents </font>
 
 
@@ -121,6 +122,7 @@ Disk Manager模块位于整个系统架构的最底层，承担着数据库文�
 #### 核心功能
 
 **空间管理**：通过位图（Bitmap）数据结构实现磁盘页面的分配和回收管理。位图中的每个比特位对应一个数据页的分配状态：
+
 - `0`：表示该数据页空闲可用
 - `1`：表示该数据页已被分配使用
 
@@ -145,6 +147,7 @@ Buffer Pool Manager是数据库系统中的关键组件，负责管理内存缓�
 **透明性设计**：Buffer Pool Manager对其他模块完全透明，其他模块只需要使用页面标识符`page_id`请求数据页，无需关心该页面是否已在内存中。同样，Disk Manager的操作对Buffer Pool Manager也是透明的。
 
 **Page对象管理**：系统中所有内存页面都由`Page`对象表示，每个`Page`对象包含：
+
 - `data_`：连续的内存空间，用于存储实际数据
 - `page_id_`：页面的唯一标识符
 - `pin_count_`：引用计数，记录当前固定该页面的线程数
@@ -153,6 +156,7 @@ Buffer Pool Manager是数据库系统中的关键组件，负责管理内存缓�
 #### 核心功能实现
 
 **主要接口函数**：
+
 - `FetchPage(page_id)`：从缓冲池中获取指定页面，如果不在内存中则从磁盘加载
 - `NewPage(page_id*)`：分配一个新的页面，返回页面指针和分配的页面ID
 - `UnpinPage(page_id, is_dirty)`：释放页面的引用，标记是否为脏页
@@ -160,6 +164,7 @@ Buffer Pool Manager是数据库系统中的关键组件，负责管理内存缓�
 - `DeletePage(page_id)`：删除页面并释放相关资源
 
 **内存管理策略**：
+
 1. **优先级查找**：首先检查请求的页面是否已在缓冲池中
 2. **空闲页分配**：从free_list中寻找可用的空闲页面
 3. **页面替换**：当缓冲池满时，使用替换算法选择合适的页面进行淘汰
@@ -171,11 +176,13 @@ Buffer Pool Manager是数据库系统中的关键组件，负责管理内存缓�
 相比传统的LRU替换算法，我们实现了Clock Replacer作为性能优化：
 
 **Clock算法优势**：
+
 - 时间复杂度接近O(1)，避免了LRU算法中链表遍历的开销
 - 在高并发场景下性能表现更优
 - 实现相对简单，降低了系统复杂度
 
 **实现原理**：
+
 - 使用循环缓冲区结构，配合时钟指针进行页面选择
 - 每个页面维护一个reference bit（使用位）
 - 需要替换时检查指针位置的使用位：使用位为0则替换，否则置0并移动指针
@@ -202,6 +209,7 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
 **Clock Replacer的算法设计**：
 
 **数据结构设计**：
+
 - `clock_list`：使用双向链表维护可被替换的页面队列，支持高效的头尾操作
 - `clock_status`：使用map存储每个页面的引用位状态（0表示未使用，1表示已使用）
 - `capacity`：记录替换器的最大容量
@@ -209,10 +217,11 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
 **核心算法逻辑**：
 
 1. **Victim操作**：实现页面淘汰选择
+
    1. 遍历clock_list寻找可替换页面
    2. 如果页面引用位为0，直接替换
    3. 如果页面引用位为1，设置为0并重新排队
-   
+
    ```cpp
    bool CLOCKReplacer::Victim(frame_id_t *frame_id) {
     if (clock_list.empty()) {
@@ -239,9 +248,10 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
    ```
 
 2. **Pin操作**：将页面从替换器中移除
+
    1. 从clock_list中移除指定页面
    2. 清除对应的状态信息
-   
+
    ```cpp
    void CLOCKReplacer::Pin(frame_id_t frame_id) {
     // 如果页存在于replacer中，将其状态设置为未使用
@@ -253,12 +263,13 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
    ```
 
 3. **Unpin操作**：将页面添加到替换器中
+
    1. 检查容量是否合法
    2. 检查是否在clock_list中，如果在则更新引用位为1
    3. 如果不在，则先检查容量是否满，
    4. 必要时先执行Victim，再将页面添加到clock_list末尾
    5. 设置引用位为1（表示刚被使用）
-   
+
    ```cpp
    void CLOCKReplacer::Unpin(frame_id_t frame_id) {
     if(clock_list.size() > capacity) {
@@ -284,6 +295,7 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
         }
     }
     }
+   ```
 
 **算法优势**：
 
@@ -316,6 +328,7 @@ bool ClockReplacer::Victim(frame_id_t *frame_id) {
    - 测试最终Size保持在容量限制内
 
 **测试覆盖的关键场景**：
+
 - Clock指针的循环移动逻辑
 - 引用位的正确设置和清除
 - 页面在队列中的正确位置管理
@@ -392,21 +405,25 @@ Record Manager模块负责管理数据表中的所有记录，是数据库存储
 Record Manager基于以下四个核心概念构建：
 
 **1. Column（列）**
+
 - 定义表中单个字段的属性信息
 - 包含字段名、数据类型、长度、是否允许为空、是否唯一等属性
 - 支持INTEGER、FLOAT、CHAR(n)三种数据类型
 
 **2. Schema（模式）** 
+
 - 表示数据表或索引的结构定义
 - 由一个或多个Column组成，定义了完整的表结构
 - 提供深拷贝和浅拷贝两种创建方式，满足不同使用场景
 
 **3. Field（域）**
+
 - 表示单条记录中某个字段的具体数据值
 - 包含数据类型、是否为空、实际数据值等信息
 - 支持不同数据类型之间的比较操作
 
 **4. Row（行）**
+
 - 表示完整的数据记录，等价于关系数据库中的元组概念
 - 由一个或多个Field组成，代表表中的一行数据
 - 通过RowId实现全局唯一标识
@@ -416,6 +433,7 @@ Record Manager基于以下四个核心概念构建：
 为了实现数据的持久化存储，Record Manager实现了完整的序列化和反序列化机制：
 
 **Schema序列化**：
+
 ```cpp
 uint32_t Schema::SerializeTo(char *buf) const {
   char *pos = buf;
@@ -444,6 +462,7 @@ uint32_t Schema::SerializeTo(char *buf) const {
 
 **Row序列化优化**：
 采用空值位图（Null Bitmap）优化存储空间：
+
 ```cpp
 uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
   char *pos = buf;
@@ -481,11 +500,13 @@ uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
 Table Heap采用链式页面结构，每个表对应一个TableHeap对象，内部维护着多个TablePage的双向链表。
 
 **RowId定位机制**：
+
 - 使用64位RowId进行记录定位
 - 高32位：存储page_id，标识记录所在的页面
 - 低32位：存储slot_num，标识记录在页面中的槽位编号
 
 **核心操作接口**：
+
 - `InsertTuple(Row &row, Txn *txn)`：插入新记录
 - `UpdateTuple(Row &row, const RowId &rid, Txn *txn)`：更新指定记录
 - `MarkDelete(const RowId &rid, Txn *txn)`：标记删除记录
@@ -503,6 +524,7 @@ Index Manager模块负责实现和管理数据库索引，是提高查询性能�
 #### B+树索引架构
 
 我们实现的B+树具有以下特点：
+
 - **磁盘友好**：每个B+树节点对应一个数据页，最大化磁盘I/O效率
 - **支持范围查询**：叶子节点通过指针连接，支持高效的范围扫描
 - **自平衡特性**：通过分裂和合并操作维护树的平衡性
@@ -512,6 +534,7 @@ Index Manager模块负责实现和管理数据库索引，是提高查询性能�
 
 **1. BPlusTreePage（基类）**
 包含所有B+树节点的公共属性：
+
 ```cpp
 class BPlusTreePage {
 private:
@@ -525,11 +548,13 @@ private:
 ```
 
 **2. BPlusTreeInternalPage（内部节点）**
+
 - 存储m个键和m+1个指针（指向子节点的page_id）
 - 第一个键设置为INVALID，实际查找从第二个键开始
 - 维护半满特性，支持分裂、合并、重分布操作
 
 **3. BPlusTreeLeafPage（叶子节点）**
+
 - 存储实际的键值对（Key-Value）
 - Key：由一个或多个Field序列化得到的索引键
 - Value：存储对应记录的RowId
@@ -538,6 +563,7 @@ private:
 #### 高级特性实现
 
 **动态键长支持**：
+
 ```cpp
 // GenericKey大小的动态调整
 if (index_type == "bptree") {
@@ -584,11 +610,13 @@ for (TableIterator table_iter = table_heap->Begin(txn);
 #### 索引类型和约束
 
 **唯一索引**：
+
 - 当前实现仅支持unique key索引
 - 在插入重复键值时返回错误，保证数据完整性
 - 主键和UNIQUE约束的列自动创建唯一索引
 
 **GenericKey管理**：
+
 - KeyManager负责GenericKey的序列化/反序列化和比较操作
 - 支持多列组合索引
 - 根据数据类型优化比较性能
@@ -600,11 +628,13 @@ Catalog Manager是数据库系统的元数据管理核心，负责维护和管�
 #### 核心职责
 
 **元数据管理**：
+
 - 维护数据库中所有表的定义信息（表名、字段定义、主键、索引等）
 - 管理每个字段的详细信息（字段类型、长度、约束条件等）
 - 跟踪数据库中所有索引的定义和状态
 
 **内存对象管理**：
+
 - 以TableInfo和IndexInfo形式在内存中存储表和索引信息
 - 维护表名到表ID、索引名到索引ID的映射关系
 - 提供高效的元数据查找和访问接口
@@ -612,6 +642,7 @@ Catalog Manager是数据库系统的元数据管理核心，负责维护和管�
 #### 持久化机制
 
 **CatalogMeta设计**：
+
 ```cpp
 uint32_t CatalogMeta::GetSerializedSize() const {
   return 4 +  // CATALOG_METADATA_MAGIC_NUM
@@ -623,6 +654,7 @@ uint32_t CatalogMeta::GetSerializedSize() const {
 ```
 
 **数据库启动恢复机制**：
+
 ```cpp
 CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager, 
                                LockManager *lock_manager,
@@ -657,6 +689,7 @@ CatalogManager::CatalogManager(BufferPoolManager *buffer_pool_manager,
 #### 表管理接口
 
 **CreateTable实现**：
+
 ```cpp
 dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schema, 
                                    Txn *txn, TableInfo *&table_info) {
@@ -689,6 +722,7 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
 ```
 
 **索引管理接口**：
+
 - `CreateIndex`：创建新索引，支持单列和多列索引
 - `GetIndex`：根据表名和索引名获取索引信息
 - `DropIndex`：删除指定索引及其相关数据页
@@ -697,10 +731,12 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
 #### 原子性保证
 
 **事务安全**：
+
 - 创建操作失败时提供回滚机制
 - 元数据更新和磁盘同步保证一致性
 
 **错误处理**：
+
 - 完整的错误码体系（DB_SUCCESS、DB_TABLE_ALREADY_EXIST等）
 - 资源泄露防护，失败时自动清理已分配资源
 - 详细的日志记录便于问题诊断
@@ -721,6 +757,7 @@ Execute Engine（执行引擎）是MiniSQL系统的核心组件，负责接收SQ
 5. **数据操作层**：通过Planner和Executor处理DML操作
 
 **主要执行流程**：
+
 ```cpp
 dberr_t ExecuteEngine::Execute(pSyntaxNode ast) {
   if (ast == nullptr) return DB_FAILED;
@@ -746,6 +783,7 @@ dberr_t ExecuteEngine::Execute(pSyntaxNode ast) {
 #### 数据库操作
 
 **创建数据库**：
+
 ```cpp
 dberr_t ExecuteEngine::ExecuteCreateDatabase(pSyntaxNode ast, ExecuteContext *context) {
   string db_name = ast->child_->val_;
@@ -758,6 +796,7 @@ dberr_t ExecuteEngine::ExecuteCreateDatabase(pSyntaxNode ast, ExecuteContext *co
 ```
 
 **使用数据库**：
+
 ```cpp
 dberr_t ExecuteEngine::ExecuteUseDatabase(pSyntaxNode ast, ExecuteContext *context) {
   string db_name = ast->child_->val_;
@@ -795,6 +834,7 @@ if (col_type_str == "int") {
 ```
 
 **删除表**：
+
 ```cpp
 dberr_t ExecuteEngine::ExecuteDropTable(pSyntaxNode ast, ExecuteContext *context) {
   // 验证上下文和AST结构
@@ -818,6 +858,7 @@ dberr_t ExecuteEngine::ExecuteDropTable(pSyntaxNode ast, ExecuteContext *context
 #### 索引管理操作
 
 **显示索引**：
+
 ```cpp
 dberr_t ExecuteEngine::ExecuteShowIndexes(pSyntaxNode ast, ExecuteContext *context) {
   // 获取数据库中的所有表
@@ -840,6 +881,7 @@ dberr_t ExecuteEngine::ExecuteShowIndexes(pSyntaxNode ast, ExecuteContext *conte
 ```
 
 **创建索引**：
+
 ```cpp
 dberr_t ExecuteEngine::ExecuteCreateIndex(pSyntaxNode ast, ExecuteContext *context) {
   // 解析索引名、表名、列名列表
@@ -874,6 +916,7 @@ dberr_t ExecuteEngine::ExecuteCreateIndex(pSyntaxNode ast, ExecuteContext *conte
 #### 脚本执行功能
 
 **EXECFILE实现**：
+
 ```cpp
 dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context) {
   std::string script_filename(ast->child_->val_);
@@ -908,6 +951,7 @@ dberr_t ExecuteEngine::ExecuteExecfile(pSyntaxNode ast, ExecuteContext *context)
 #### 火山模型执行器
 
 **执行器创建**：
+
 ```cpp
 std::unique_ptr<AbstractExecutor> ExecuteEngine::CreateExecutor(
     ExecuteContext *exec_ctx, const AbstractPlanNodeRef &plan) {
@@ -927,6 +971,7 @@ std::unique_ptr<AbstractExecutor> ExecuteEngine::CreateExecutor(
 ```
 
 **执行计划执行**：
+
 ```cpp
 dberr_t ExecuteEngine::ExecutePlan(const AbstractPlanNodeRef &plan, 
                                   std::vector<Row> *result_set, 
@@ -964,12 +1009,14 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 #### 恢复策略
 
 采用经典的Write-Ahead Logging (WAL)策略：
+
 - **Redo阶段**：重做所有已提交但未写入磁盘的事务
 - **Undo阶段**：回滚所有未提交的事务
 
 #### 设计考量
 
 为了降低实现复杂度，我们采用了以下简化策略：
+
 - 日志仅在内存中维护，不涉及磁盘持久化
 - 使用unordered_map模拟KV数据库
 - 专注于恢复算法的核心逻辑实现
@@ -982,6 +1029,7 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 
 **Clock Replacer算法**：
 相比传统LRU算法，Clock Replacer在高并发场景下具有更好的性能表现：
+
 - 时间复杂度接近O(1)
 - 避免了链表遍历开销
 - 减少了函数调用的Cache Miss
@@ -990,6 +1038,7 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 
 **空值位图优化**：
 在Row序列化中采用位图压缩技术，大幅减少存储空间：
+
 - 使用1个bit表示一个字段的null状态
 - 只序列化非空字段的实际数据
 - 显著提高存储效率和I/O性能
@@ -1005,150 +1054,141 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 ### 错误处理机制
 
 **完整的错误码体系**：
+
 - 定义了详细的错误类型（DB_SUCCESS、DB_TABLE_ALREADY_EXIST等）
 - 提供统一的错误信息输出
 - 实现了资源泄露防护机制
 
-### 并发安全
-
-**原子操作**：
-- 使用std::atomic保证ID分配的线程安全
-- 通过Buffer Pool Manager的锁机制保证页面访问安全
-
 ## 验收与检验流程
 
-***PASSED IS ALL YOU NEED***
+***PASSED IS ALL YOU NEED***        
 
-![e1cd2fc01c463991b5b8e37b975ecca](https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/e1cd2fc01c463991b5b8e37b975ecca.png)
+![image-20250605205807062](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\pass is all you need)
+
+除LockManager外其他所有内容均Pass
 
 1. 创建数据库`db0`、`db1`、`db2`，并列出所有的数据库
 
-   <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/32f8f1e0955d09201d5164b55de152b.png" alt="32f8f1e0955d09201d5164b55de152b" style="zoom:33%;" />
-
-   <img src="E:\Weixin\WeChat Files\wxid_jb06lsyuy4wp22\FileStorage\Temp\58cd5cf7908bbad821fb64bd290bd47.png" alt="58cd5cf7908bbad821fb64bd290bd47" style="zoom:33%;" />
-
-   - drop掉重新建，建立`db0`和`db1`;
-
-   <img src="E:\Weixin\WeChat Files\wxid_jb06lsyuy4wp22\FileStorage\Temp\62ae29d78b6eb38e2afaf6fc93cfff1.png" alt="62ae29d78b6eb38e2afaf6fc93cfff1" style="zoom:50%;" />
+   ![image-20250605212618925](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605212618925.png)
 
 2. 在`db0`数据库上创建数据表`account`，表的定义如下：
 
    ```sql
    create table account(
      id int, 
-     name char(16) unique, 
+     name char(16), 
      balance float, 
      primary key(id)
    );
    ```
 
-   <img src="E:\Weixin\WeChat Files\wxid_jb06lsyuy4wp22\FileStorage\Temp\8c31c95a2a40b75f5f879788561b0d9.png" alt="8c31c95a2a40b75f5f879788561b0d9" style="zoom:50%;" />
+   ![image-20250605212706665](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605212706665.png)
 
 3. 考察SQL执行以及数据插入操作
 
-   执行数据库文件`sql.txt`，向表中插入$100000$条记录, 批量执行时，所有sql执行完显示总的执行时间
+   `execfile "./test_data/sql_gen/account00.txt";`
+   `execfile "./test_data/sql_gen/account01.txt";`
+   `execfile "./test_data/sql_gen/account02.txt";`
 
-   <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/6a6e6d5c46f6133333e2ee062e47a38.png" alt="6a6e6d5c46f6133333e2ee062e47a38" style="zoom:50%;" />
+   ![image-20250605212737103](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605212737103.png)
 
-4. 执行全表扫描`select * from account`，验证插入的数据是否正确（要求输出查询到100000条记录)
+   ![image-20250605212824693](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605212824693.png)
 
-   <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/7ee1e95c8ae7a246e2b97abb4306333.png" alt="7ee1e95c8ae7a246e2b97abb4306333" style="zoom:50%;" />
+   ![image-20250605212848780](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605212848780.png)
+
+4. 执行全表扫描`select * from account`，验证插入的数据是否正确（要求输出查询到30000条记录)
+
+   ![image-20250605213149888](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605213149888.png)
 
 5. 考察点查询操作：
 
    ```sql
-   select * from account where id = 12599995;
-   select * from account where name = "name56789";
-   select * from account where id <> 12599995;
-   select * from account where balance <> 576.140015;
-   select * from account where name <> "name56769";
+   select * from account where id = 12502345;
+   select * from account where balance = 181.259995;
+   select * from account where name = "name26789";
+   select * from account where id <> 12509999;
+   select * from account where balance <> 86.269997;
+   select * from account where name <> "name09999";
    ```
 
-   <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/5ccbe37cc0fd331c9566078a564c69b.png" alt="5ccbe37cc0fd331c9566078a564c69b" style="zoom: 50%;" />
+   ![image-20250605213233689](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605213233689.png)
 
-   <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/41ff390e3a18efbe98e21722b276a4b.png" alt="41ff390e3a18efbe98e21722b276a4b" style="zoom:50%;" />
+   ![image-20250605213310306](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605213310306.png)
+
+   ![image-20250605213351293](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605213351293.png)
+
+   ![image-20250605213409240](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605213409240.png)
+
+   ![image-20250605213427212](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605213427212.png)
+
+   ![image-20250605213446066](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605213446066.png)
 
    
 
 6. 考察多条件查询与投影操作：
 
    ```sql
-   select id, name from account where balance >= 185 and balance < 190;
-   select name, balance from account where balance > 125 and id <= 12599908;
+   select id, name from account where balance >= 990 and balance < 3000;
+   select name, balance from account where balance > 1000 and id <= 12529999;
    select * from account where id < 12515000 and name > "name14500";
    select * from account where id < 12500200 and name < "name00100";
+   
+   insert into account values(12509999,"name99999",8.1);
    ```
 
-   | 1    | ![49a97086253c4f3f5216d1e80a68e90](https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/49a97086253c4f3f5216d1e80a68e90.png) |
-   | ---- | ------------------------------------------------------------ |
-   | 2    | ![1718034932706](https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/1718034932706.png) |
-   | 3    | ![8db63ee93c159d1439b7ed26034d80f](https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/8db63ee93c159d1439b7ed26034d80f.png) |
-   | 4    | ![1ad631e6b6a56bd13655d8a9841c427](https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/1ad631e6b6a56bd13655d8a9841c427.png) |
+   ![image-20250605213805179](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605213805179.png)
+
+   ![image-20250605213845501](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605213845501.png)
+
+   ![image-20250605213910127](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605213910127.png)
+
+   ![image-20250605213923849](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605213923849.png)
+
+   ![image-20250605213941670](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605213941670.png)
+
+   
 
 7. 考察唯一约束
 
    ```sql
    create index idx01 on account(name);
-   select * from account where name = "name56789";#此处记录执行时间t2，要求t2<t1
-   select * from account where name = "name45678";#此处记录执行时间t3
-   select * from account where id < 12500200 and name < "name00100"; 
-   #此处记录执行时间t6，比较t5和t6
-   delete from account where name = "name45678";
-   insert into account values(?, "name45678", ?);
-   drop index idx01;          #执行(c)的语句，此处记录执行时间t4，要求 t3<t4
+   select * from account where name = "name26789";
+   select * from account where name = "name45678";
+   select * from account where id < 12500200 and name < "name00100";
+   delete from account where name = "name25678";
+   insert into account values(12525678, "name25678", 880.67);
+   drop index idx01;
    ```
 
-   **此处录制了视频（当时验收发生了小插曲），已经钉钉发送，打扰了助教哥哥，万分抱歉**
+   ![image-20250605214021458](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605214021458.png)
+
+   ![image-20250605214126134](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605214126134.png)
+
+   ![image-20250605214147899](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605214147899.png)
+
+   ![image-20250605214200828](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605214200828.png)
+
+   ![image-20250605223244160](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605223244160.png)
 
    
 
-8. 考察更新操作：`update account set id = ?, balance = ? where name = "name56789";` 并通过`select`操作验证记录被更新
+8. 考察更新操作：`update account set id =12529999 where name = "name29999";` 并通过`select`操作验证记录被更新
 
-   <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/1718541691249.png" alt="1718541691249" style="zoom:50%;" />
+   ![image-20250605223500872](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605223500872.png)
 
 9. 考察删除操作：
 
-   1. `delete from account where balance = ?`，并通过`select`操作验证记录被删除
+   1. `delete from account where balance = 123123.123;`，并通过`select`操作验证记录被删除
 
    2. `delete from account`，并通过`select`操作验证全表被删除
 
    3. `drop table account`，并通过`show tables`验证该表
 
-      <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/43ffe6c20ae8a0135b637c177d2fffd.png" alt="43ffe6c20ae8a0135b637c177d2fffd" style="zoom:50%;" />
+      ![image-20250605223652920](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605223652920.png)
 
-      <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/7b8ab79cd8ede49c3580f17f9858b71.png" alt="7b8ab79cd8ede49c3580f17f9858b71" style="zoom:50%;" />
+      ![image-20250605223722157](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\image-20250605223722157.png)
 
-      <img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/3539bd013b14a0411d906f83ce20fa4.png" alt="3539bd013b14a0411d906f83ce20fa4" style="zoom:50%;" />
-
-## 性能测试与优化
-
-### 性能基准测试
-
-我们的MiniSQL系统在性能测试中表现优异：
-
-**数据插入性能**：
-- 100,000条记录插入：约15秒完成
-- 支持批量插入优化，显著提高大数据量导入效率
-
-**查询性能**：
-- 主键查询：毫秒级响应时间
-- 索引查询相比全表扫描性能提升90%以上
-- 范围查询支持高效的B+树遍历
-
-**内存使用效率**：
-- Clock Replacer算法相比LRU减少30%的CPU开销
-- 空值位图压缩减少存储空间约20%
-
-### 性能优化策略
-
-**查询优化**：
-- 基于代价的索引选择
-- 支持索引覆盖查询避免回表操作
-- 谓词下推减少不必要的数据传输
-
-**存储优化**：
-- 页面压缩技术减少I/O 开销
-- 智能预读机制提高缓存命中率
+      ![image-20250605223804779](C:\Users\lenovo\AppData\Roaming\Typora\typora-user-images\image-20250605223804779.png)
 
 ## 项目总结与展望
 
@@ -1156,19 +1196,21 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 
 通过本次MiniSQL项目的开发，我们成功实现了：
 
-1. **完整的关系型数据库系统**：包含完整的DDL、DML、DCL支持
+1. **完整的关系型数据库系统**：包含完整的SQL解析、执行引擎、存储管理和索引管理模块
 2. **高性能的存储引擎**：基于B+树的索引系统，支持大规模数据处理
-3. **可靠的事务机制**：保证数据的ACID特性
+3. **高效的内存管理**：采用Buffer Pool Manager和Clock Replacer算法，优化了内存使用
 4. **优秀的系统架构**：模块化设计，便于维护和扩展
 
 ### 技术收获
 
 **理论知识巩固**：
+
 - 深入理解了数据库系统的内部架构
 - 掌握了B+树索引的实现原理
 - 学习了数据库事务和恢复机制
 
 **工程能力提升**：
+
 - 大型项目的架构设计和模块化开发
 - 性能优化和系统调优经验
 - 团队协作和代码管理能力
@@ -1176,27 +1218,30 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 ### 未来改进方向
 
 **功能扩展**：
+
 - 支持更多SQL标准特性（如JOIN操作、聚合函数等）
 - 实现查询优化器，提供基于代价的查询计划选择
 - 添加更多数据类型支持（如DATE、BLOB等）
 
 **性能优化**：
+
 - 实现多版本并发控制（MVCC）
 - 支持并行查询执行
 - 添加列式存储支持，优化分析性查询
 
 **系统完善**：
+
 - 完整的日志和恢复系统
 - 网络协议支持，实现客户端-服务器架构
 - 完善的权限管理和安全机制
 
 ## 分组与设计分工
 
-| 姓名   | 学号       | 分工                |
-| ------ | ---------- | ------------------- |
-| 宋嘉民 | 3230105644 | 4 5模块以及小组报告 |
-| 钱满亮 | 3220104364 | 3 6模块             |
-| 汪晨雨 | 3220105799 | 1 2模块             |
+| 姓名   | 学号       | 分工                  |
+| ------ | ---------- | --------------------- |
+| 宋嘉民 | 3230105644 | 4 5模块Clock_Replacer |
+| 钱满亮 | 3220104364 | 3 6模块               |
+| 汪晨雨 | 3220105799 | 1 2模块               |
 
 ## 提交附录
 
@@ -1204,4 +1249,4 @@ Recovery Manager负责管理和维护数据恢复的过程，虽然在本项目�
 - 良好的Git记录
 - 个人报告以及小组报告
 
-<img src="https://blog-pic-thorin.oss-cn-hangzhou.aliyuncs.com/5127f0218653f0e18ad1db823f613de.png" alt="5127f0218653f0e18ad1db823f613de" style="zoom:33%;" />
+![image-20250605210034262](D:\BaiduSyncdisk\浙江大学\软工\数据库\MiniSQL\git log)

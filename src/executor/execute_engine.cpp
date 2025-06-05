@@ -477,7 +477,8 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
     }
     parsed_col_definitions.push_back(parsed_col_info);
 
-    }else if (current_item_node->type_ == kNodeColumnList) {
+    }
+    else if (current_item_node->type_ == kNodeColumnList) {
       // 处理列列表
       pSyntaxNode col_list_node = current_item_node->child_;
       while (col_list_node != nullptr) {
@@ -486,7 +487,6 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
           parsed_col_info.column_name = col_list_node->val_;
           parsed_column_list_from_ast.push_back(parsed_col_info.column_name);
           parsed_column_set_for_lookup.insert(parsed_col_info.column_name);
-          col_list_node = col_list_node->next_;
         } else {
           LOG(ERROR) << "Syntax error: Expected column name in PRIMARY KEY constraint for table '" << table_name << "'.";
           return DB_FAILED;
@@ -548,7 +548,7 @@ dberr_t ExecuteEngine::ExecuteCreateTable(pSyntaxNode ast, ExecuteContext *conte
   dberr_t create_result = catalog_manager->CreateTable(table_name, schema, txn, table_info);
 
   delete schema; // 释放Schema内存(如果CreateTable成功，里面是深拷贝会开新的Schema对象)
-
+  schema = nullptr;
   if (create_result != DB_SUCCESS) {
     LOG(ERROR) << "Failed to create table '" << table_name << "' in database '" << current_db_ << "'. Error code: " << create_result;
     ExecuteInformation(create_result);

@@ -10,7 +10,7 @@ bool BitmapPage<PageSize>::AllocatePage(uint32_t &page_offset) {
   auto max_size = GetMaxSupportedSize();
 
   if (page_allocated_ >= max_size) {
-    LOG(WARNING) << "Page is full, cannot allocate more pages";
+    //LOG(WARNING) << "Page is full, cannot allocate more pages";
     return false;
   }
 
