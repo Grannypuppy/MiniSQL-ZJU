@@ -319,7 +319,7 @@ dberr_t CatalogManager::DropTable(const string &table_name) {
   }
 
   for (const std::string &idx_name_to_drop : index_names_to_drop) {
-    dberr_t drop_idx_res = DropIndex(table_name, idx_name_to_drop); // 这个 DropIndex 会调用 FlushCatalogMetaPage
+    dberr_t drop_idx_res = DropIndex(table_name, idx_name_to_drop);
     if (drop_idx_res != DB_SUCCESS) {
       LOG(ERROR) << "Failed to drop index '" << idx_name_to_drop << "' for table '" << table_name
                  << "' during DropTable. Aborting DropTable partially completed.";
