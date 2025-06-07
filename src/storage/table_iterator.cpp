@@ -7,6 +7,7 @@
  * TODO: Student Implement
  */
 TableIterator::TableIterator(TableHeap *table_heap, RowId rid, Txn *txn) : table_heap_(table_heap), current_rid_(rid), txn_(txn) {
+  // 判断我的rid是否有效
   if (current_rid_ == INVALID_ROWID || table_heap_ == nullptr) return;
   current_row_ = Row(current_rid_);
   if(!table_heap_->GetTuple(&current_row_, txn_)) 
@@ -16,6 +17,7 @@ TableIterator::TableIterator(TableHeap *table_heap, RowId rid, Txn *txn) : table
 }
 
 TableIterator::TableIterator(const TableIterator &other) {
+  // 浅拷贝
   table_heap_ = other.table_heap_;
   txn_ = other.txn_;
   current_row_ = other.current_row_;
@@ -64,32 +66,35 @@ TableIterator &TableIterator::operator++() {
     current_rid_ = next_rid;
     current_row_ = Row(current_rid_);
     bool ok = table_heap_->GetTuple(&current_row_, txn_);
-    ASSERT(ok, "TableIterator::operator++: GetTuple failed");
+    ASSERT(ok, "Operator++ GetTuple failed"); // 必须读取成功
     return *this;
   }
 
   // 找下一页
   page_id_t next_page_id = page->GetNextPageId();
   bpm->UnpinPage(cur_page_id, false);
+  
   while (next_page_id != INVALID_PAGE_ID) {
     auto page_next = reinterpret_cast<TablePage *>(bpm->FetchPage(next_page_id));
+    
+    // 无法获取下一页，设为 End()
     if (page_next == nullptr) {
-      // 无法获取下一页，设为 End()
       current_rid_.Set(INVALID_PAGE_ID, 0);
       bpm->UnpinPage(next_page_id, false);
       return *this;
     }
-    // 尝试从新页面的开头获取第一个元组
+
+    // 从新页面获得元组
     if (page_next->GetFirstTupleRid(&next_rid)) {
       bpm->UnpinPage(next_page_id, false);
       current_rid_ = next_rid;
       current_row_ = Row(current_rid_);
       bool ok = table_heap_->GetTuple(&current_row_, txn_);
-      ASSERT(ok, "TableIterator::operator++: GetTuple failed on new page");
+      ASSERT(ok, "Operator++ GetTuple failed in a new page");
       return *this;
     }
+
     bpm->UnpinPage(next_page_id, false);
-    // 如果这个新页面也是空的，循环会继续，获取它的下一页 
     next_page_id  = page_next->GetNextPageId();
   }
 

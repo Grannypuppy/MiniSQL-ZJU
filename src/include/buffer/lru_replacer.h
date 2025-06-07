@@ -40,8 +40,8 @@ public:
 private:
     // add your own private member variables here
     size_t capacity;
-    std::list<frame_id_t> lru_list_;
-    std::unordered_map<frame_id_t, std::list<frame_id_t>::iterator> cache;
+    std::list<frame_id_t> lru_list_; // 双向链表
+    std::unordered_map<frame_id_t, std::list<frame_id_t>::iterator> buf; // 快速定位frame_id的位置
 };
 
 #endif  // MINISQL_LRU_REPLACER_H
