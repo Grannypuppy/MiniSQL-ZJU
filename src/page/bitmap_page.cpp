@@ -9,6 +9,7 @@ template <size_t PageSize>
 bool BitmapPage<PageSize>::AllocatePage(uint32_t &page_offset) {
   auto max_size = GetMaxSupportedSize();
 
+  // 已分配页已经超过了最大容量
   if (page_allocated_ >= max_size) {
     //LOG(WARNING) << "Page is full, cannot allocate more pages";
     return false;

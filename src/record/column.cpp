@@ -39,8 +39,8 @@ Column::Column(const Column *other)
 * TODO: Student Implement
 */
 uint32_t Column::SerializeTo(char *buf) const {
-    char *pos = buf;
     //写入魔数
+    char *pos = buf;
     MACH_WRITE_UINT32(pos, Column::COLUMN_MAGIC_NUM);
     pos += sizeof(uint32_t);
 
@@ -89,8 +89,8 @@ uint32_t Column::GetSerializedSize() const {
  * TODO: Student Implement
  */
 uint32_t Column::DeserializeFrom(char *buf, Column *&column) {
-    char *pos = buf;
     //读魔数并校验
+    char *pos = buf;
     uint32_t magic = MACH_READ_UINT32(pos);
     ASSERT(magic == Column::COLUMN_MAGIC_NUM, "Column DeserializeFrom wrong magic number.");
     pos += sizeof(uint32_t);

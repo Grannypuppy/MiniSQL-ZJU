@@ -4,8 +4,8 @@
 * TODO: Student Implement
 */
 uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
-  ASSERT(schema != nullptr, "INVALID SCHEMA");
-  ASSERT(schema->GetColumnCount() == fields_.size(), "FILED COUNT MISMATCH");
+  ASSERT(schema != nullptr, "Invalid schema!");
+  ASSERT(schema->GetColumnCount() == fields_.size(), "Fields in serialization count dismatch!");
 
   char *pos = buf;
   uint32_t field_count = schema->GetColumnCount();
@@ -15,7 +15,7 @@ uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
   MACH_WRITE_UINT32(pos, field_count);
   pos += sizeof(uint32_t);
 
-  // 生成并写入 null bitmap
+  // 生成并写入null_bitmap:来记录哪些字段为空
   std::vector<uint8_t> null_bitmap(bitmap_bytes_count, 0);
   for (uint32_t i = 0; i < field_count; ++i) {
     if (fields_[i]->IsNull()) {
@@ -40,24 +40,25 @@ uint32_t Row::SerializeTo(char *buf, Schema *schema) const {
 * TODO: Student Implement
 */
 uint32_t Row::DeserializeFrom(char *buf, Schema *schema) {
-  ASSERT(schema != nullptr, "INVALID SCHEMA");
-  ASSERT(fields_.empty(), "ROW SHOULD BE EMPTY BEFORE DESERIALIZATION");
+  ASSERT(schema != nullptr, "Invalid schema!");
+  ASSERT(fields_.empty(), "In deserialization, row shouldn't be empty!");
 
   char *pos = buf;
   uint32_t field_count = MACH_READ_UINT32(pos);
   pos += sizeof(uint32_t);
-  ASSERT(field_count == schema->GetColumnCount(), "DESERIALIZATION FIELD COUNT MISMATCH WITH SCHEMA");
+  ASSERT(field_count == schema->GetColumnCount(), "Fields in deserialization count dismatch!");
 
-  uint32_t bitmap_bytes_count = (field_count + 7) / 8;
+  // 读取null_bitmap
+  uint32_t bitmap_bytes_count = (field_count + 7) / 8; // 向上取整
   std::vector<uint8_t> null_bitmap(bitmap_bytes_count);
   memcpy(null_bitmap.data(), pos, bitmap_bytes_count);
   pos += bitmap_bytes_count;
 
   //反序列化字段
   for (uint32_t i = 0; i < field_count; ++i) {
-    bool is_null = (null_bitmap[i / 8] >> (i % 8)) & 1;
+    bool is_null = (null_bitmap[i / 8] >> (i % 8)) & 1; // 判断是否为空
     Field *field = nullptr;
-    uint32_t move = Field::DeserializeFrom(pos, schema->GetColumn(i)->GetType(), &field, is_null);
+    uint32_t move = Field::DeserializeFrom(pos, schema->GetColumn(i)->GetType(), &field, is_null); // 注意Filed::,调用的是Field类的静态函数
     pos += move;
     fields_.push_back(field);
   }
@@ -69,8 +70,8 @@ uint32_t Row::DeserializeFrom(char *buf, Schema *schema) {
 * TODO: Student Implement
 */
 uint32_t Row::GetSerializedSize(Schema *schema) const {
-  ASSERT(schema != nullptr, "INVALID SCHEMA PROVIDED FOR SIZE CALCULATION.");
-  ASSERT(schema->GetColumnCount() == fields_.size(), "FIELD COUNT MISMATCH WITH SCHEMA COLUMN COUNT.");
+  ASSERT(schema != nullptr, "Invalid schema!");
+  ASSERT(schema->GetColumnCount() == fields_.size(), "Fileds in GetSerializedSize count dismatch!");
 
   uint32_t size = 0;
   uint32_t field_count = schema->GetColumnCount();
@@ -92,6 +93,7 @@ uint32_t Row::GetSerializedSize(Schema *schema) const {
 * TODO: Student Implement
 */
 void Row::GetKeyFromRow(const Schema *source_schema, const Schema *key_schema, Row &key_row) {
+  // 只提取key的字段，source_schema -> key_schema
   auto key_columns = key_schema->GetColumns();
   std::vector<Field> fields;
   uint32_t idx;
