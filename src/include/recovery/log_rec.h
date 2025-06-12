@@ -37,17 +37,10 @@ struct LogRec {
     lsn_t prev_lsn_{INVALID_LSN};
     txn_id_t txn_id_{INVALID_TXN_ID};
 
-    // for insert
-    KeyType ins_key_;
-    ValType ins_val_;
-
-    // for delete
-    KeyType del_key_;
-    ValType del_val_;
-
-    // for update
+    // for update and delete
     KeyType old_key_;
     ValType old_val_;
+    // for update and insert
     KeyType new_key_;
     ValType new_val_;
 
@@ -79,8 +72,8 @@ typedef std::shared_ptr<LogRec> LogRecPtr;
 static LogRecPtr CreateInsertLog(txn_id_t txn_id, KeyType ins_key, ValType ins_val) {
     lsn_t lsn = LogRec::next_lsn_++;
     auto log = std::make_shared<LogRec>(LogRecType::kInsert, lsn, txn_id, LogRec::GetAndUpdatePrevLSN(txn_id, lsn));
-    log->ins_key_ = std::move(ins_key);
-    log->ins_val_ = ins_val;
+    log->new_key_ = std::move(ins_key);
+    log->new_val_ = ins_val;
     return log;
 }
 
@@ -90,8 +83,8 @@ static LogRecPtr CreateInsertLog(txn_id_t txn_id, KeyType ins_key, ValType ins_v
 static LogRecPtr CreateDeleteLog(txn_id_t txn_id, KeyType del_key, ValType del_val) {
     lsn_t lsn = LogRec::next_lsn_++;
     auto log = std::make_shared<LogRec>(LogRecType::kDelete, lsn, txn_id, LogRec::GetAndUpdatePrevLSN(txn_id, lsn));
-    log->del_key_ = std::move(del_key);
-    log->del_val_ = del_val;
+    log->old_key_ = std::move(del_key);
+    log->old_val_ = del_val;
     return log;
 }
 
