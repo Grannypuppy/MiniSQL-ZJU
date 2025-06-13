@@ -143,6 +143,7 @@ dberr_t CatalogManager::CreateTable(const string &table_name, TableSchema *schem
   // 获取表堆的根页ID
   page_id_t root_page_id = table_heap->GetFirstPageId();
 
+  // root_page_id是表堆的第一个页面ID
   
   // 创建表的元数据，包括表ID、表名、根页ID和表结构
   TableMetadata *table_meta = TableMetadata::Create(table_id, table_name, root_page_id, copied_schema);
@@ -220,6 +221,7 @@ dberr_t CatalogManager::CreateIndex(const string &table_name, const string &inde
   }
 
   // 检查索引键是否有效，并生成 key_map_
+  // key_map_ 用于将索引键映射到表的列索引(就是第几列)
   vector<uint32_t> key_map;
   auto schema = table_info->GetSchema();
   for (const auto &key : index_keys) {
@@ -327,7 +329,7 @@ dberr_t CatalogManager::DropTable(const string &table_name) {
     }
   }
 
-  // 删除表堆管理的所有数据页
+  // 删除TableHeap表堆管理的所有数据页
   TableHeap *table_heap = table_info->GetTableHeap();
   if (table_heap != nullptr) {
     table_heap->FreeTableHeap(); // FreeTableHeap 会遍历并删除所有相关页面
@@ -348,6 +350,7 @@ dberr_t CatalogManager::DropTable(const string &table_name) {
                    << ") not found in catalog_meta_->table_meta_pages_ during DropTable.";
     }
   }
+
   if (meta_page_entry_found_in_catalog && table_meta_page_id != INVALID_PAGE_ID) {
     buffer_pool_manager_->DeletePage(table_meta_page_id);
   }
@@ -382,7 +385,7 @@ dberr_t CatalogManager::DropIndex(const string &table_name, const string &index_
 
     IndexInfo *index_info = indexes_.find(index_id)->second;
     //LOG(INFO) << "Dropping index: " << index_name << " with ID: " << index_id;
-    delete index_info;
+    delete index_info; //会递归调用析构把IndexMetadata和Index对象删除掉
     indexes_.erase(index_id);
     table_iter->second.erase(index_name);
 
